@@ -1,4 +1,4 @@
-// Package ui is poly's two-pane terminal interface.
+// Package ui is duetty's two-pane terminal interface.
 package ui
 
 import (
@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
-	"github.com/nlm/poly/internal/convo"
+	"github.com/nlm/duetty/internal/convo"
 	"github.com/rivo/tview"
 )
 

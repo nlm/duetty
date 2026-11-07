@@ -5,7 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/nlm/poly/internal/stt"
+	"github.com/nlm/duetty/internal/stt"
 )
 
 // bytesPerSec is the size of one second of 48 kHz mono s16le audio.

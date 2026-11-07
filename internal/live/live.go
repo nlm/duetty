@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlm/poly/internal/convo"
-	"github.com/nlm/poly/internal/stt"
+	"github.com/nlm/duetty/internal/convo"
+	"github.com/nlm/duetty/internal/stt"
 )
 
 // Resolver transcribes 16 kHz WAV audio; lang "" auto-detects, otherwise

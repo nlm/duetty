@@ -3,7 +3,7 @@ package stt
 import (
 	"context"
 	"encoding/binary"
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/usage"
 	"net/http"
 	"net/http/httptest"
 	"strings"

@@ -20,9 +20,9 @@ import (
 
 	ort "github.com/yalue/onnxruntime_go"
 
-	"github.com/nlm/poly/internal/audioutil"
-	"github.com/nlm/poly/internal/onnxenv"
-	"github.com/nlm/poly/internal/stderrguard"
+	"github.com/nlm/duetty/internal/audioutil"
+	"github.com/nlm/duetty/internal/onnxenv"
+	"github.com/nlm/duetty/internal/stderrguard"
 )
 
 const (

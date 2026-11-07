@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/usage"
 )
 
 func noEnv(string) string { return "" }
@@ -68,8 +68,8 @@ func envMap(m map[string]string) func(string) string { return func(k string) str
 func TestUserConfigPickedUp(t *testing.T) {
 	d := inTempDir(t)
 	xdg := filepath.Join(d, "xdg")
-	os.MkdirAll(filepath.Join(xdg, "poly"), 0o700)
-	os.WriteFile(filepath.Join(xdg, "poly", "config.toml"), []byte("translate_context = 9\n"), 0o600)
+	os.MkdirAll(filepath.Join(xdg, "duetty"), 0o700)
+	os.WriteFile(filepath.Join(xdg, "duetty", "config.toml"), []byte("translate_context = 9\n"), 0o600)
 	c, err := Load(withURL(), envMap(map[string]string{"XDG_CONFIG_HOME": xdg}))
 	if err != nil || c.TranslateContext != 9 {
 		t.Fatalf("%v %v", c.TranslateContext, err)
@@ -173,12 +173,12 @@ func TestAPIURLRequired(t *testing.T) {
 func TestAPIEnvPrecedence(t *testing.T) {
 	inTempDir(t)
 	both := map[string]string{
-		"POLY_API_KEY": "poly-key", "OPENAI_API_KEY": "openai-key",
-		"POLY_API_URL": "https://poly.example/v1", "OPENAI_BASE_URL": "https://openai.example/v1",
+		"DUETTY_API_KEY": "duetty-key", "OPENAI_API_KEY": "openai-key",
+		"DUETTY_API_URL": "https://duetty.example/v1", "OPENAI_BASE_URL": "https://openai.example/v1",
 	}
 	c, err := Load(nil, envMap(both))
-	if err != nil || c.APIKey != "poly-key" || c.APIURL != "https://poly.example/v1" {
-		t.Fatalf("POLY_* must win: key %q url %q err %v", c.APIKey, c.APIURL, err)
+	if err != nil || c.APIKey != "duetty-key" || c.APIURL != "https://duetty.example/v1" {
+		t.Fatalf("DUETTY_* must win: key %q url %q err %v", c.APIKey, c.APIURL, err)
 	}
 	c, err = Load(nil, envMap(map[string]string{"OPENAI_API_KEY": "openai-key", "OPENAI_BASE_URL": "https://openai.example/v1"}))
 	if err != nil || c.APIKey != "openai-key" || c.APIURL != "https://openai.example/v1" {
@@ -195,7 +195,7 @@ func TestAPIEnvPrecedence(t *testing.T) {
 	if err != nil || c.APIURL != "https://file.example/v1" {
 		t.Fatalf("file must win over env: %q %v", c.APIURL, err)
 	}
-	if _, err := Load(nil, envMap(map[string]string{"POLY_API_URL": "http://evil.example/v1"})); err == nil {
+	if _, err := Load(nil, envMap(map[string]string{"DUETTY_API_URL": "http://evil.example/v1"})); err == nil {
 		t.Fatal("plain http from env accepted")
 	}
 }
@@ -233,7 +233,7 @@ func TestHelpAndUsage(t *testing.T) {
 	var b bytes.Buffer
 	Usage(&b)
 	out := b.String()
-	for _, want := range []string{"-languages", "-langs", "-api-url", "-config", "-mic", "-log-file", "(default 0.6)", "~/.config/poly/config.toml"} {
+	for _, want := range []string{"-languages", "-langs", "-api-url", "-config", "-mic", "-log-file", "(default 0.6)", "~/.config/duetty/config.toml"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("usage missing %q:\n%s", want, out)
 		}

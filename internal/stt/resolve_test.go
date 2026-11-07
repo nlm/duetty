@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nlm/poly/internal/langid"
+	"github.com/nlm/duetty/internal/langid"
 )
 
 type fakeT struct {

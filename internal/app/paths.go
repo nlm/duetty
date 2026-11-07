@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nlm/poly/internal/config"
-	"github.com/nlm/poly/internal/denoise"
+	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/denoise"
 )
 
 // Default locations, relative to the (symlink-resolved) executable's directory
@@ -80,7 +80,7 @@ func resolveAudioPaths(cfg config.Config, env pathEnv) (config.Config, []string,
 		p, tried := env.find(defaultSmartTurnModel)
 		if p == "" {
 			warns = append(warns, fmt.Sprintf(
-				"smart turn unavailable, using fixed silence: no smart_turn_model set and none next to the poly binary (%s); run scripts/setup-models.sh or set smart_turn_model / -smart-turn-model",
+				"smart turn unavailable, using fixed silence: no smart_turn_model set and none next to the duetty binary (%s); run scripts/setup-models.sh or set smart_turn_model / -smart-turn-model",
 				triedText(tried)))
 		}
 		cfg.SmartTurnModel = p
@@ -89,7 +89,7 @@ func resolveAudioPaths(cfg config.Config, env pathEnv) (config.Config, []string,
 		p, tried := env.find(defaultDenoiseModel)
 		if p == "" {
 			warns = append(warns, fmt.Sprintf(
-				"denoise unavailable, continuing without it: no denoise_model set and none next to the poly binary (%s); run scripts/setup-denoise.sh or set denoise_model / -denoise-model",
+				"denoise unavailable, continuing without it: no denoise_model set and none next to the duetty binary (%s); run scripts/setup-denoise.sh or set denoise_model / -denoise-model",
 				triedText(tried)))
 		}
 		cfg.DenoiseModel = p
@@ -98,7 +98,7 @@ func resolveAudioPaths(cfg config.Config, env pathEnv) (config.Config, []string,
 		p, tried := env.find(defaultSileroModel)
 		if p == "" {
 			return cfg, warns, fmt.Errorf(
-				"silero VAD model not found next to the poly binary (%s): run scripts/setup-models.sh and `go build -o poly ./cmd/poly` in the repo root, set vad_model / -vad-model, or use -mic off",
+				"silero VAD model not found next to the duetty binary (%s): run scripts/setup-models.sh and `go build -o duetty ./cmd/duetty` in the repo root, set vad_model / -vad-model, or use -mic off",
 				triedText(tried))
 		}
 		cfg.VADModel = p
@@ -107,7 +107,7 @@ func resolveAudioPaths(cfg config.Config, env pathEnv) (config.Config, []string,
 }
 
 // ResolveAudioPaths is resolveAudioPaths against the real executable
-// directory, for other commands (poly-eval) that share poly's model layout.
+// directory, for other commands (duetty-eval) that share duetty's model layout.
 func ResolveAudioPaths(cfg config.Config) (config.Config, []string, error) {
 	return resolveAudioPaths(cfg, osPathEnv())
 }

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nlm/poly/internal/apierr"
+	"github.com/nlm/duetty/internal/apierr"
 )
 
 func TestTranscribeHTTPErrorIsStatusError(t *testing.T) {

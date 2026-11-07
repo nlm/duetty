@@ -9,7 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/nlm/poly/internal/convo"
+	"github.com/nlm/duetty/internal/convo"
 )
 
 func within(t *testing.T, d time.Duration, what string, f func()) {

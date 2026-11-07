@@ -1,7 +1,7 @@
-# poly configuration
+# duetty configuration
 #
-# Where poly looks for it:
-#   - ~/.config/poly/config.toml ($XDG_CONFIG_HOME/poly/config.toml) if it exists;
+# Where duetty looks for it:
+#   - ~/.config/duetty/config.toml ($XDG_CONFIG_HOME/duetty/config.toml) if it exists;
 #   - or the file given with -config PATH.
 #   A config.toml in the current directory is never read unless named with -config.
 #
@@ -17,10 +17,10 @@
 
 # API endpoint. Required, no default, so your key only ever goes to a provider
 # you chose. Must be https (http is allowed for localhost only).
-# Environment: POLY_API_URL, then OPENAI_BASE_URL. (-api-url)
+# Environment: DUETTY_API_URL, then OPENAI_BASE_URL. (-api-url)
 api_url = "https://api.scaleway.ai/<project_id>/v1"
 
-# API key. Prefer the environment: POLY_API_KEY, then OPENAI_API_KEY.
+# API key. Prefer the environment: DUETTY_API_KEY, then OPENAI_API_KEY.
 # Never commit a file that contains a key. (file only)
 # api_key = ""
 
@@ -75,8 +75,8 @@ api_url = "https://api.scaleway.ai/<project_id>/v1"
 # price_currency = ""
 
 # --- Local models ------------------------------------------------------------
-# Empty paths are looked up next to the poly binary only, never in the current
-# directory: run scripts/setup-models.sh, then `go build -o poly ./cmd/poly`
+# Empty paths are looked up next to the duetty binary only, never in the current
+# directory: run scripts/setup-models.sh, then `go build -o duetty ./cmd/duetty`
 # in the repo root.
 
 # onnxruntime shared library. "" = third_party/onnxruntime/lib/ next to the

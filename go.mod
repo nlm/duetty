@@ -1,4 +1,4 @@
-module github.com/nlm/poly
+module github.com/nlm/duetty
 
 go 1.26.0
 

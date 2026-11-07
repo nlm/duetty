@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/nlm/poly/internal/audioutil"
+	"github.com/nlm/duetty/internal/audioutil"
 )
 
 // PCM48kToWAV16k converts 48 kHz s16le mono PCM to a 16 kHz mono 16-bit WAV.

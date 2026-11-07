@@ -1,4 +1,4 @@
-// Command poly-eval measures poly's language pick and noise rejection against
+// Command duetty-eval measures duetty's language pick and noise rejection against
 // the real API: clips go through Silero + trim and then stt.Resolver, once per
 // language pair. Transcripts are printed to stdout only, never stored.
 package main
@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlm/poly/internal/app"
-	"github.com/nlm/poly/internal/audioio"
-	"github.com/nlm/poly/internal/config"
-	"github.com/nlm/poly/internal/denoise"
-	"github.com/nlm/poly/internal/langid"
-	"github.com/nlm/poly/internal/silerovad"
-	"github.com/nlm/poly/internal/stt"
-	"github.com/nlm/poly/internal/trim"
+	"github.com/nlm/duetty/internal/app"
+	"github.com/nlm/duetty/internal/audioio"
+	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/denoise"
+	"github.com/nlm/duetty/internal/langid"
+	"github.com/nlm/duetty/internal/silerovad"
+	"github.com/nlm/duetty/internal/stt"
+	"github.com/nlm/duetty/internal/trim"
 )
 
 type clip struct {
@@ -83,13 +83,13 @@ func (t clipT) Transcribe(_ context.Context, _ []byte, lang string) (stt.Result,
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "poly-eval:", err)
+		fmt.Fprintln(os.Stderr, "duetty-eval:", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	fs := flag.NewFlagSet("poly-eval", flag.ExitOnError)
+	fs := flag.NewFlagSet("duetty-eval", flag.ExitOnError)
 	clips := fs.String("clips", "eval/clips/meta.json", "meta.json of sentence clips")
 	pairsF := fs.String("pairs", "fr-en,es-en,ja-en,es-fr,ja-fr,es-ja", "comma-separated language pairs")
 	words := fs.String("words", "", "meta.json of short real words (must be kept, not dropped as noise)")
@@ -99,7 +99,7 @@ func run() error {
 	maxc := fs.Float64("maxcomp", 0, "noise max compression (default: config)")
 	cfgPath := fs.String("config", "", "config file")
 	apiURL := fs.String("api-url", "", "OpenAI-compatible API URL (default: config)")
-	dn := fs.Bool("denoise", false, "run every clip through the local denoiser first (as -denoise in poly)")
+	dn := fs.Bool("denoise", false, "run every clip through the local denoiser first (as -denoise in duetty)")
 	fs.Parse(os.Args[1:])
 
 	var cargs []string
@@ -114,7 +114,7 @@ func run() error {
 		return err
 	}
 	if cfg.APIKey == "" {
-		return errors.New("no API key: set POLY_API_KEY (or OPENAI_API_KEY)")
+		return errors.New("no API key: set DUETTY_API_KEY (or OPENAI_API_KEY)")
 	}
 	if *floor == 0 {
 		*floor = cfg.NoiseMinLogprob
@@ -130,7 +130,7 @@ func run() error {
 	}
 	if cfg.Denoise {
 		if cfg.DenoiseModel == "" {
-			return errors.New("-denoise: no denoise model next to poly-eval (run scripts/setup-denoise.sh) or set denoise_model")
+			return errors.New("-denoise: no denoise model next to duetty-eval (run scripts/setup-denoise.sh) or set denoise_model")
 		}
 		d, err := denoise.New(cfg.ONNXRuntimeLib, cfg.DenoiseModel)
 		if err != nil {

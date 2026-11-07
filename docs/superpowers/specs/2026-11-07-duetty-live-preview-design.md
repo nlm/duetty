@@ -1,12 +1,12 @@
-# poly — live preview, sentence commits and cost counter
+# duetty — live preview, sentence commits and cost counter
 
 Status: draft for approval · 2026-11-07 · extends
-`docs/superpowers/specs/2026-11-07-poly-design.md` (the base design; everything
+`docs/superpowers/specs/2026-11-07-duetty-design.md` (the base design; everything
 not mentioned here stays as it is).
 
 ## Intent and why
 
-Today poly sends audio only when Smart Turn decides the speaker's *turn* is
+Today duetty sends audio only when Smart Turn decides the speaker's *turn* is
 over. Someone who says three sentences in a row waits for all three before
 seeing anything, and the other person reads nothing until the speaker stops.
 The user wants to see the text and its translation **while the person is
@@ -195,7 +195,7 @@ starts a new turn). Already-committed sentences of that turn stay.
 Live preview is **on by default** (the user changed this on 2026-11-07;
 it was first specified as off by default). `live_preview = false` or
 `-live-preview=false` turns off everything in "How it works" above except
-the cost counter, which is always on: poly then behaves exactly as before
+the cost counter, which is always on: duetty then behaves exactly as before
 (one transcription per turn, no early commits), with the cost counter
 still shown. Escape dropping the live turn only
 applies when live preview is on.

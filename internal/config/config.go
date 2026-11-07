@@ -1,4 +1,4 @@
-// Package config loads poly's settings from an optional TOML file, the
+// Package config loads duetty's settings from an optional TOML file, the
 // environment and command-line flags (flags win over the file).
 package config
 
@@ -15,10 +15,10 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/usage"
 )
 
-// Config holds every poly setting. Each field is a snake_case TOML key.
+// Config holds every duetty setting. Each field is a snake_case TOML key.
 type Config struct {
 	Languages      [2]string `toml:"languages"` // ISO-639-1, [0] = left pane
 	APIURL         string    `toml:"api_url"`
@@ -78,7 +78,7 @@ func (c Config) Prices() *usage.Prices {
 	}
 }
 
-// userConfigPath returns <user config dir>/poly/config.toml, derived from
+// userConfigPath returns <user config dir>/duetty/config.toml, derived from
 // XDG_CONFIG_HOME or HOME via getenv, or "" if neither is set.
 func userConfigPath(getenv func(string) string) string {
 	dir := getenv("XDG_CONFIG_HOME")
@@ -89,7 +89,7 @@ func userConfigPath(getenv func(string) string) string {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "poly", "config.toml")
+	return filepath.Join(dir, "duetty", "config.toml")
 }
 
 // Defaults returns the built-in configuration. APIURL has no default: the
@@ -132,17 +132,17 @@ type flagVars struct {
 	tmp         Config // copied into the result only for flags explicitly set
 }
 
-// newFlagSet defines every poly flag, with defaults taken from v.tmp. Its
+// newFlagSet defines every duetty flag, with defaults taken from v.tmp. Its
 // output is discarded; Usage prints the help text.
 func newFlagSet(v *flagVars) *flag.FlagSet {
-	fs := flag.NewFlagSet("poly", flag.ContinueOnError)
+	fs := flag.NewFlagSet("duetty", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	t := &v.tmp
-	fs.StringVar(&v.path, "config", "", "path to a TOML config file (default: ~/.config/poly/config.toml, or $XDG_CONFIG_HOME/poly/config.toml, if present; ./config.toml is read only via -config)")
+	fs.StringVar(&v.path, "config", "", "path to a TOML config file (default: ~/.config/duetty/config.toml, or $XDG_CONFIG_HOME/duetty/config.toml, if present; ./config.toml is read only via -config)")
 	fs.StringVar(&v.langs, "languages", "", "two language codes, left pane first, e.g. fr,en (default fr,en)")
 	fs.StringVar(&v.langs, "langs", "", "short for -languages")
-	fs.StringVar(&t.APIURL, "api-url", t.APIURL, "OpenAI-compatible API URL (required; or env POLY_API_URL / OPENAI_BASE_URL), e.g. https://api.scaleway.ai/<project_id>/v1")
+	fs.StringVar(&t.APIURL, "api-url", t.APIURL, "OpenAI-compatible API URL (required; or env DUETTY_API_URL / OPENAI_BASE_URL), e.g. https://api.scaleway.ai/<project_id>/v1")
 	fs.StringVar(&t.STTModel, "stt-model", t.STTModel, "speech-to-text model")
 	fs.StringVar(&t.TranslateModel, "translate-model", t.TranslateModel, "translation model")
 	fs.IntVar(&t.TranslateContext, "translate-context", t.TranslateContext, "previous sentences given to the translator as context")
@@ -167,15 +167,15 @@ func Usage(w io.Writer) {
 	v := &flagVars{tmp: Defaults()}
 	fs := newFlagSet(v)
 	fs.SetOutput(w)
-	fmt.Fprintf(w, "Usage: poly [flags]\n\nFlags:\n")
+	fmt.Fprintf(w, "Usage: duetty [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 }
 
 // Load builds a Config: defaults, then the TOML file (-config PATH, else the
-// per-user <config dir>/poly/config.toml -- $XDG_CONFIG_HOME/poly/config.toml
-// or ~/.config/poly/config.toml -- if it exists; ./config.toml is never read
+// per-user <config dir>/duetty/config.toml -- $XDG_CONFIG_HOME/duetty/config.toml
+// or ~/.config/duetty/config.toml -- if it exists; ./config.toml is never read
 // implicitly), then the environment for whatever the file left unset
-// (api_key: POLY_API_KEY, then OPENAI_API_KEY; api_url: POLY_API_URL, then
+// (api_key: DUETTY_API_KEY, then OPENAI_API_KEY; api_url: DUETTY_API_URL, then
 // OPENAI_BASE_URL), then explicitly-set flags.
 //
 // -h/-help returns flag.ErrHelp; any other command-line parse error is
@@ -221,10 +221,10 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	}
 
 	if cfg.APIKey == "" {
-		cfg.APIKey = firstEnv(getenv, "POLY_API_KEY", "OPENAI_API_KEY")
+		cfg.APIKey = firstEnv(getenv, "DUETTY_API_KEY", "OPENAI_API_KEY")
 	}
 	if cfg.APIURL == "" {
-		cfg.APIURL = firstEnv(getenv, "POLY_API_URL", "OPENAI_BASE_URL")
+		cfg.APIURL = firstEnv(getenv, "DUETTY_API_URL", "OPENAI_BASE_URL")
 	}
 
 	// Flags override, only those explicitly set.
@@ -334,7 +334,7 @@ func (c Config) Validate() error {
 
 func validateAPIURL(raw string) error {
 	if raw == "" {
-		return errors.New("api_url: required: set api_url in the config file, -api-url, or POLY_API_URL (e.g. https://api.scaleway.ai/<project_id>/v1)")
+		return errors.New("api_url: required: set api_url in the config file, -api-url, or DUETTY_API_URL (e.g. https://api.scaleway.ai/<project_id>/v1)")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {

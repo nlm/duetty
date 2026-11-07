@@ -9,7 +9,7 @@ import (
 
 	"github.com/gen2brain/malgo"
 
-	"github.com/nlm/poly/internal/log"
+	"github.com/nlm/duetty/internal/log"
 )
 
 // dropReportInterval bounds how often accumulated dropped-chunk counts are

@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nlm/poly/internal/audioutil"
+	"github.com/nlm/duetty/internal/audioutil"
 )
 
 // RMS computes the root-mean-square amplitude of signed 16-bit

@@ -1,4 +1,4 @@
-# poly — two-language live transcript for face-to-face conversation
+# duetty — two-language live transcript for face-to-face conversation
 
 Date: 2026-11-07
 Status: approved by user 2026-11-07 (es/ja verified)
@@ -232,8 +232,8 @@ talktome style: `config.toml` + command-line flags that override it.
 
 - `languages = ["fr", "en"]` / `-languages fr,en` (alias `-langs`; ISO-639-1; exactly two,
   distinct; must be Whisper-supported)
-- endpoint `api_url` (env `POLY_API_URL`, then `OPENAI_BASE_URL`), API key
-  (env `POLY_API_KEY`, then `OPENAI_API_KEY`, or `api_key` in the config)
+- endpoint `api_url` (env `DUETTY_API_URL`, then `OPENAI_BASE_URL`), API key
+  (env `DUETTY_API_KEY`, then `OPENAI_API_KEY`, or `api_key` in the config)
 - `stt_model` (default `whisper-large-v3`), `translate_model` (default
   `mistral-small-3.2-24b-instruct-2506`)
 - `timestamps = false` / `-timestamps`
@@ -260,10 +260,10 @@ These are Claude's own calls, not the user's:
 
 - **Reuse by copying** the needed talktome packages (audioio, vad,
   silerovad, smartturn, audioutil, audiolevel, onnxenv, the transcription
-  part of openai, relevant tui bits) into `/root/poly` rather than
+  part of openai, relevant tui bits) into `/root/duetty` rather than
   importing them. talktome is a large module with internal packages, and
-  copying keeps poly standalone. Trim what isn't needed.
-- Project location `/root/poly`, binary name `poly`.
+  copying keeps duetty standalone. Trim what isn't needed.
+- Project location `/root/duetty`, binary name `duetty`.
 - Translation model default `mistral-small-3.2` (fastest in the tests).
 - Text language detection with lingua-go (also used for typed input).
 - Testing: an offline evaluation command (like talktome's `eval`) runs

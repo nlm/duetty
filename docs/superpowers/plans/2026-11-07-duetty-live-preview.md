@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go, tview/tcell, BurntSushi/toml, OpenAI-compatible Whisper (`verbose_json`) and chat completions.
 
-**Spec:** `docs/superpowers/specs/2026-11-07-poly-live-preview-design.md` (extends `docs/superpowers/specs/2026-11-07-poly-design.md`)
+**Spec:** `docs/superpowers/specs/2026-11-07-duetty-live-preview-design.md` (extends `docs/superpowers/specs/2026-11-07-duetty-design.md`)
 
 ## Global Constraints
 

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlm/poly/internal/audiolevel"
-	"github.com/nlm/poly/internal/audioutil"
-	"github.com/nlm/poly/internal/log"
+	"github.com/nlm/duetty/internal/audiolevel"
+	"github.com/nlm/duetty/internal/audioutil"
+	"github.com/nlm/duetty/internal/log"
 )
 
 // SampleRate is the PCM sample rate (Hz) this package assumes for incoming

@@ -3,7 +3,7 @@ package live
 import (
 	"testing"
 
-	"github.com/nlm/poly/internal/stt"
+	"github.com/nlm/duetty/internal/stt"
 )
 
 func segs(texts ...string) []stt.Segment {

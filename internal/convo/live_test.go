@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/nlm/poly/internal/stt"
+	"github.com/nlm/duetty/internal/stt"
 )
 
 func liveRow(rows []Row) (Row, bool) {

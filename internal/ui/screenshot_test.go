@@ -10,15 +10,15 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/nlm/poly/internal/convo"
+	"github.com/nlm/duetty/internal/convo"
 )
 
 // TestWriteREADMEScreenshot renders a sample session on a simulated
 // terminal and converts it to an SVG. The SVG is always built and checked;
-// it is written to docs/poly-screen.svg (the README picture) only with
-// POLY_WRITE_SVG=1:
+// it is written to docs/duetty-screen.svg (the README picture) only with
+// DUETTY_WRITE_SVG=1:
 //
-//	POLY_WRITE_SVG=1 go test ./internal/ui -run TestWriteREADMEScreenshot
+//	DUETTY_WRITE_SVG=1 go test ./internal/ui -run TestWriteREADMEScreenshot
 func TestWriteREADMEScreenshot(t *testing.T) {
 	a, sim := newSim(t, 96, 18)
 	rows := []convo.Row{
@@ -42,10 +42,10 @@ func TestWriteREADMEScreenshot(t *testing.T) {
 	if len(svg) > 40<<10 {
 		t.Fatalf("SVG is %d bytes, want < 40 KB", len(svg))
 	}
-	if os.Getenv("POLY_WRITE_SVG") != "1" {
-		t.Skip("set POLY_WRITE_SVG=1 to write docs/poly-screen.svg")
+	if os.Getenv("DUETTY_WRITE_SVG") != "1" {
+		t.Skip("set DUETTY_WRITE_SVG=1 to write docs/duetty-screen.svg")
 	}
-	if err := os.WriteFile("../../docs/poly-screen.svg", []byte(svg), 0o644); err != nil {
+	if err := os.WriteFile("../../docs/duetty-screen.svg", []byte(svg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

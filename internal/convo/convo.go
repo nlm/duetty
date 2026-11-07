@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlm/poly/internal/apierr"
-	"github.com/nlm/poly/internal/stt"
-	"github.com/nlm/poly/internal/translate"
+	"github.com/nlm/duetty/internal/apierr"
+	"github.com/nlm/duetty/internal/stt"
+	"github.com/nlm/duetty/internal/translate"
 )
 
 // RequestTimeout bounds every transcription and translation request.

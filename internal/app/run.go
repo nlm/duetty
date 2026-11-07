@@ -1,4 +1,4 @@
-// Package app is poly's composition root: it wires the microphone, Silero
+// Package app is duetty's composition root: it wires the microphone, Silero
 // VAD, Smart Turn, trimming, transcription, translation and the two-pane UI.
 package app
 
@@ -13,21 +13,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlm/poly/internal/audioio"
-	"github.com/nlm/poly/internal/config"
-	"github.com/nlm/poly/internal/convo"
-	"github.com/nlm/poly/internal/denoise"
-	"github.com/nlm/poly/internal/langid"
-	"github.com/nlm/poly/internal/live"
-	"github.com/nlm/poly/internal/log"
-	"github.com/nlm/poly/internal/silerovad"
-	"github.com/nlm/poly/internal/smartturn"
-	"github.com/nlm/poly/internal/stt"
-	"github.com/nlm/poly/internal/translate"
-	"github.com/nlm/poly/internal/trim"
-	"github.com/nlm/poly/internal/ui"
-	"github.com/nlm/poly/internal/usage"
-	"github.com/nlm/poly/internal/vad"
+	"github.com/nlm/duetty/internal/audioio"
+	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/convo"
+	"github.com/nlm/duetty/internal/denoise"
+	"github.com/nlm/duetty/internal/langid"
+	"github.com/nlm/duetty/internal/live"
+	"github.com/nlm/duetty/internal/log"
+	"github.com/nlm/duetty/internal/silerovad"
+	"github.com/nlm/duetty/internal/smartturn"
+	"github.com/nlm/duetty/internal/stt"
+	"github.com/nlm/duetty/internal/translate"
+	"github.com/nlm/duetty/internal/trim"
+	"github.com/nlm/duetty/internal/ui"
+	"github.com/nlm/duetty/internal/usage"
+	"github.com/nlm/duetty/internal/vad"
 )
 
 // MicOff is the -mic value that disables audio capture entirely (typed input
@@ -84,12 +84,12 @@ type Deps struct {
 	Meter *usage.Meter
 }
 
-// Run starts poly and blocks until the UI quits. Startup errors (no API key,
+// Run starts duetty and blocks until the UI quits. Startup errors (no API key,
 // Silero or onnxruntime missing, mic open failure) are returned before the UI
 // starts; the caller prints them.
 func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	if cfg.APIKey == "" {
-		return errors.New("no API key: set POLY_API_KEY (or OPENAI_API_KEY), or api_key in the config file")
+		return errors.New("no API key: set DUETTY_API_KEY (or OPENAI_API_KEY), or api_key in the config file")
 	}
 	stderr := d.Stderr
 	if stderr == nil {
@@ -121,7 +121,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	defer cancel()
 
 	pair := cfg.Languages
-	log.Info("poly starting: %s/%s, stt=%s, translate=%s", pair[0], pair[1], cfg.STTModel, cfg.TranslateModel)
+	log.Info("duetty starting: %s/%s, stt=%s, translate=%s", pair[0], pair[1], cfg.STTModel, cfg.TranslateModel)
 
 	// Usage counter: always on, shown at the end of the status bar.
 	up := &usagePusher{prices: cfg.Prices()}
@@ -708,7 +708,7 @@ func (s *warnSink) Info(string, ...any) {}
 func (s *warnSink) Warnf(f string, a ...any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fmt.Fprintf(s.w, "poly: warning: %s\n", fmt.Sprintf(f, a...))
+	fmt.Fprintf(s.w, "duetty: warning: %s\n", fmt.Sprintf(f, a...))
 }
 
 // fileSink writes timestamped lines to the -log-file.

@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nlm/poly/internal/apierr"
-	"github.com/nlm/poly/internal/config"
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/apierr"
+	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/usage"
 )
 
 // Pair is a past conversation row, given to the translator as context.

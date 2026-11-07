@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nlm/poly/internal/log"
+	"github.com/nlm/duetty/internal/log"
 )
 
 // fakeVAD is a scripted VoiceDetector: each Feed call consumes the next

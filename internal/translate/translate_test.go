@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/usage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/nlm/poly/internal/apierr"
+	"github.com/nlm/duetty/internal/apierr"
 )
 
 type msg struct{ Role, Content string }

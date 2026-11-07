@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nlm/poly/internal/convo"
+	"github.com/nlm/duetty/internal/convo"
 	"github.com/rivo/tview"
 )
 

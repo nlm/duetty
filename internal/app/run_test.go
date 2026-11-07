@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nlm/poly/internal/apierr"
-	"github.com/nlm/poly/internal/config"
-	"github.com/nlm/poly/internal/convo"
-	"github.com/nlm/poly/internal/log"
-	"github.com/nlm/poly/internal/stt"
-	"github.com/nlm/poly/internal/translate"
-	"github.com/nlm/poly/internal/usage"
+	"github.com/nlm/duetty/internal/apierr"
+	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/convo"
+	"github.com/nlm/duetty/internal/log"
+	"github.com/nlm/duetty/internal/stt"
+	"github.com/nlm/duetty/internal/translate"
+	"github.com/nlm/duetty/internal/usage"
 )
 
 const marker = "SECRET-PHRASE-42"

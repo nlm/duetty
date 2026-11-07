@@ -1,6 +1,6 @@
-# poly evaluation
+# duetty evaluation
 
-`poly-eval` runs clips through the same path as the live app (Silero probs,
+`duetty-eval` runs clips through the same path as the live app (Silero probs,
 trim, min-speech check, then `stt.Resolver`) against the real API, once per
 language pair. Auto-detect transcriptions are cached per (clip, language) within a run,
 since the first pass does not depend on the pair. Transcripts are printed to
@@ -8,10 +8,10 @@ stdout only; nothing is stored. Audio is never committed (`eval/clips/`,
 `eval/words/`, `eval/noise/` are gitignored).
 
 ```
-go build -o poly-eval ./cmd/poly-eval          # models/ and third_party/ next to the binary
+go build -o duetty-eval ./cmd/duetty-eval          # models/ and third_party/ next to the binary
 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 10 eval/clips
 WORD_MIN=1 WORD_MAX=2 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 12 eval/words
-POLY_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json \
+DUETTY_API_KEY=... ./duetty-eval -config my.toml -clips eval/clips/meta.json \
     -words eval/words/meta.json -noise eval/noise -detail
 ```
 
@@ -87,7 +87,7 @@ the Whisper-level floor is a backstop for low-confidence hallucinations
 
 ## Denoise (`-denoise`, GTCRN)
 
-`poly-eval -denoise` runs every clip (sentences, words, noise) through a fresh
+`duetty-eval -denoise` runs every clip (sentences, words, noise) through a fresh
 `internal/denoise` instance in 2048-byte chunks, as the live mic path does,
 before Silero. Same clips and defaults as above, run back to back:
 

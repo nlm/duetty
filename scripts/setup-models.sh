@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the models and onnxruntime poly needs under models/ and
+# Installs the models and onnxruntime duetty needs under models/ and
 # third_party/ (both gitignored): Silero VAD, Smart Turn v3.2 and the
 # onnxruntime shared library. If a talktome checkout is present
 # (TALKTOME_DIR, default ~/llmchat/talktome) its copies are used; otherwise
