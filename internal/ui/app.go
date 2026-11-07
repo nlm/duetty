@@ -20,7 +20,6 @@ const meterCells = 8
 // signal a single coalescing redraw goroutine.
 type App struct {
 	pair       [2]string
-	model      string
 	timestamps bool
 
 	app              *tview.Application
@@ -87,10 +86,10 @@ func useTerminalColors() {
 }
 
 // New builds the UI for a language pair.
-func New(pair [2]string, model string, timestamps bool) *App {
+func New(pair [2]string, timestamps bool) *App {
 	useTerminalColors()
 	a := &App{
-		pair: pair, model: model, timestamps: timestamps,
+		pair: pair, timestamps: timestamps,
 		state: "listening", following: true,
 		redraw: make(chan struct{}, 1), done: make(chan struct{}), pumpDone: make(chan struct{}),
 		app: tview.NewApplication(),
@@ -135,6 +134,7 @@ func New(pair [2]string, model string, timestamps bool) *App {
 		return x, y, w, h
 	})
 	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 1, 0, false). // blank margin line at the top
 		AddItem(cols(a.bodyL, a.bodyR, bodySep), 0, 1, false).
 		AddItem(nil, 1, 0, false). // blank line above the input box
 		AddItem(a.input, 3, 0, true).
@@ -239,9 +239,10 @@ func (a *App) pageSize() int {
 	return 1
 }
 
-// bodyHeight is the pane height: the screen minus the blank spacer, the bordered input box (3 lines) and the status line.
+// bodyHeight is the pane height: the screen minus the top margin, the blank
+// spacer, the bordered input box (3 lines) and the status line.
 func (a *App) bodyHeight() int {
-	if h := a.height - 5; h > 1 {
+	if h := a.height - 6; h > 1 {
 		return h
 	}
 	return 1
@@ -336,7 +337,7 @@ func (a *App) updateStatusText() {
 	if notice != "" {
 		fmt.Fprintf(&sb, " · [yellow]%s[-]", tview.Escape(notice))
 	}
-	fmt.Fprintf(&sb, " · %s ⇄ %s · %s", tview.Escape(a.pair[0]), tview.Escape(a.pair[1]), tview.Escape(a.model))
+	fmt.Fprintf(&sb, " · %s ⇄ %s", tview.Escape(a.pair[0]), tview.Escape(a.pair[1]))
 	if usage != "" {
 		fmt.Fprintf(&sb, " · %s", tview.Escape(usage))
 	}

@@ -24,7 +24,7 @@ func within(t *testing.T, d time.Duration, what string, f func()) {
 }
 
 func TestSetRowsNeverBlocksWithoutRun(t *testing.T) {
-	a := New(pair, "m", false)
+	a := New(pair, false)
 	within(t, 2*time.Second, "SetRows/SetStatus", func() {
 		for i := 0; i < 1000; i++ {
 			a.SetRows([]convo.Row{row(1, convo.Done, "fr", "a", "b")})
@@ -90,7 +90,7 @@ func newSim(t *testing.T, w, h int) (*App, tcell.SimulationScreen) {
 
 func newSimPair(t *testing.T, p [2]string, w, h int) (*App, tcell.SimulationScreen) {
 	t.Helper()
-	a := New(p, "mistral-small", false)
+	a := New(p, false)
 	sim := tcell.NewSimulationScreen("UTF-8")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestStopWhileHammeringStatusExitsPump(t *testing.T) {
 }
 
 func TestStopBeforeRunReturnsImmediately(t *testing.T) {
-	a := New(pair, "m", false)
+	a := New(pair, false)
 	a.Stop()
 	errc := make(chan error, 1)
 	go func() { errc <- a.Run() }()
@@ -312,7 +312,7 @@ func TestKeys(t *testing.T) {
 }
 
 func TestCtrlCStopsRunReturnsNil(t *testing.T) {
-	a := New(pair, "m", false)
+	a := New(pair, false)
 	sim := tcell.NewSimulationScreen("UTF-8")
 	sim.Init()
 	a.app.SetScreen(sim)
@@ -389,4 +389,47 @@ func TestStatusShowsUsage(t *testing.T) {
 		settle(a)
 		return !strings.Contains(dump(sim), "850 tok")
 	})
+}
+
+// The status bar shows the pair and usage, not the translation model.
+func TestStatusLineWithoutModel(t *testing.T) {
+	a, sim := newSim(t, 100, 10)
+	a.SetUsage("850 tok · 42s audio")
+	want := "░░░░░░░░ listening · fr ⇄ en · 850 tok · 42s audio"
+	waitFor(t, "status drawn", func() bool {
+		settle(a)
+		return strings.Contains(dump(sim), "850 tok")
+	})
+	lines := strings.Split(dump(sim), "\n")
+	got := strings.TrimRight(strings.TrimSuffix(lines[9], "|"), " ")
+	if got != " "+want {
+		t.Fatalf("status line = %q, want %q", got, " "+want)
+	}
+}
+
+// A blank margin line sits above the panes; following still shows the
+// newest line at the bottom of the panes.
+func TestTopMarginAndFollowing(t *testing.T) {
+	a, sim := newSim(t, 80, 12)
+	var rows []convo.Row
+	for i := 1; i <= 20; i++ {
+		lang := pair[i%2]
+		rows = append(rows, row(uint64(i), convo.Done, lang, fmt.Sprintf("ligne%02d", i), fmt.Sprintf("line%02d", i)))
+	}
+	a.SetRows(rows)
+	waitFor(t, "rows drawn", func() bool {
+		settle(a)
+		return strings.Contains(dump(sim), "ligne1")
+	})
+	lines := strings.Split(dump(sim), "\n")
+	if strings.TrimSpace(strings.TrimSuffix(lines[0], "|")) != "" {
+		t.Fatalf("top line not blank: %q", lines[0])
+	}
+	if !strings.Contains(dump(sim), "ligne20") {
+		t.Fatalf("newest row not visible while following:\n%s", dump(sim))
+	}
+	// The pane (rows 1..h-6) ends just above the blank spacer and input box.
+	if !strings.Contains(strings.Join(lines[1:7], "\n"), "line20") {
+		t.Fatalf("newest line not at the bottom of the panes:\n%s", dump(sim))
+	}
 }

@@ -180,7 +180,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 
 	u := d.UI
 	if u == nil {
-		u = ui.New(pair, cfg.TranslateModel, cfg.Timestamps)
+		u = ui.New(pair, cfg.Timestamps)
 	}
 	rp := &rowPusher{ui: u, st: st, outcomes: &outcomeLog{seen: map[uint64]convo.Status{}}}
 	cl := convo.New(pair, resolver, translator, cfg.TranslateContext, rp.changed)
