@@ -1,133 +1,238 @@
 # poly
 
-A terminal tool for live two-language conversations. Two panes: the left shows
-what was said (marked with a dot) in the original language, the right shows its
-translation. You pick the two languages at startup. Speech comes from the
-microphone or from typed text. poly never plays audio.
+**Live two-language transcripts for face-to-face conversations, in your terminal.**
 
-Nothing is written to disk. Conversation text is not logged anywhere. The
-optional `-log-file` holds timings, states and errors only.
+Two people who don't share a language sit in front of one laptop and talk.
+poly listens, writes down what each person says in their own language, and
+shows the translation next to it. Nobody waits for a voice to read the
+translation aloud. Each person just reads the other's words.
 
-## How it works
+![poly: French on the left, English on the right, each sentence shown in both](docs/poly-screen.svg)
 
-Microphone audio goes through Silero VAD (voice activity) and, optionally,
-Smart Turn (end-of-utterance detection) and a local denoiser. The finished
-utterance is sent to an OpenAI-compatible speech-to-text endpoint (Whisper),
-then to a chat model for translation, using the last few utterances as context.
+<!-- Regenerate the picture: POLY_WRITE_SVG=1 go test ./internal/ui -run TestWriteREADMEScreenshot -->
 
-**Language choice.** Whisper first auto-detects the language. poly checks that
-the detected language is one of your two and that the text looks like it. If not,
-it re-runs the audio forced to each language of the pair and keeps the better
-result.
+## Features
 
-**Noise.** Coughs, keyboard clicks and the like are dropped before Whisper by:
-Silero threshold 0.6, minimum speech 250 ms, trimming of the audio edges, and a
-confidence floor (Whisper avg log-prob and compression ratio) on what comes back.
+- **Two panes, one per language.** Each sentence appears in the pane of the
+  language it was spoken in, marked with `»`, and its translation appears
+  level with it in the other pane.
+- **Live preview.** Text and its translation appear while the person is
+  still speaking. Finished sentences are fixed before the speaker stops.
+- **Speech or keyboard.** Speak into the microphone or type a sentence.
+  `-mic off` gives you a text-only translator.
+- **Reliable language pick.** Whisper's language guess is checked against
+  your two languages and against the text itself. If it looks wrong, poly
+  transcribes the audio again in each of your languages.
+- **Noise rejection.** Coughs, clicks and background chatter are filtered
+  out before and after transcription.
+- **Cost counter.** The status bar counts tokens and audio seconds for the
+  session. Add your prices and it shows a cost estimate too.
+- **Private by default.** No audio or text is written to disk, and the
+  optional log holds only timings and errors.
+- **Works with any OpenAI-compatible API.** Tested with Scaleway Generative
+  APIs (`whisper-large-v3` and `mistral-small-3.2`).
 
-## Setup
+## Quick start
 
-Requirements: Go 1.26 with cgo enabled (a C compiler), and ALSA development
-headers on Linux. The setup scripts need `curl`.
+```sh
+git clone https://github.com/nlm/poly.git && cd poly
+scripts/setup-models.sh            # Silero VAD, Smart Turn, onnxruntime
+go build -o poly ./cmd/poly
 
-```
-scripts/setup-models.sh      # Silero VAD, Smart Turn, onnxruntime
-scripts/setup-denoise.sh     # optional: GTCRN denoiser model
-go build -o poly ./cmd/poly  # run from the repo root
-```
-
-Default model and runtime paths (`models/`, `third_party/onnxruntime/`) are
-looked up only next to the `poly` binary, never in the current directory. So
-build with `go build -o poly` in the repo root as above. With `go run`, the
-binary lives in a temp dir; pass `-silero-vad-model`, `-smart-turn-model`,
-`-onnxruntime-lib` (and `-denoise-model`) explicitly.
-
-### Configuration
-
-`~/.config/poly/config.toml` (or `$XDG_CONFIG_HOME/poly/config.toml`) is loaded
-automatically if it exists. A `./config.toml` is read only when you pass
-`-config ./config.toml`. Copy `config.example.toml` as a starting point; it lists
-every key and its matching flag. Unknown keys are an error.
-
-Precedence: flag, then config file, then `OPENAI_API_KEY` (key only), then defaults.
-
-- `base_url` is required (no default, so a key is never sent to a provider you
-  did not choose): set it in the config file or with `-base-url`. It must be
-  `https`; plain `http` is accepted only for localhost.
-- Set the key with `OPENAI_API_KEY` rather than writing `api_key` in a file. Never
-  commit a config that contains a key.
-
-Example for Scaleway Generative APIs:
-
-```toml
-base_url = "https://api.scaleway.ai/<project_id>/v1"
-stt_model = "whisper-large-v3"
-translate_model = "mistral-small-3.2-24b-instruct-2506"
+export OPENAI_API_KEY=...          # your provider's API key
+./poly -langs fr,en -base-url https://api.scaleway.ai/<project_id>/v1
 ```
 
+Speak, or type a sentence and press Enter. Press `?` to see the keys and
+`Ctrl+C` to quit.
+
+## Installation
+
+### Requirements
+
+- Go 1.26 with cgo enabled (a C compiler)
+- Linux (x86-64 or arm64) with the ALSA development headers, or macOS on
+  Apple silicon
+- `curl` for the setup scripts
+- An OpenAI-compatible API with a speech-to-text model (Whisper) and a chat
+  model
+
+### Build
+
+```sh
+scripts/setup-models.sh            # required for microphone input
+scripts/setup-denoise.sh           # optional: GTCRN denoiser for -denoise
+go build -o poly ./cmd/poly        # build in the repo root
 ```
-export OPENAI_API_KEY=...   # your Scaleway secret key
-```
 
-### Live preview and cost
+poly looks for `models/` and `third_party/onnxruntime/` **next to the `poly`
+binary only**, never in the current directory. Build into the repo root as
+shown above. If the binary lives elsewhere (for example with `go run`), pass
+`-silero-vad-model`, `-smart-turn-model`, `-onnxruntime-lib` and
+`-denoise-model` explicitly.
 
-With live preview on, poly shows provisional text and translation in both panes
-while someone is speaking, and finished sentences appear before the speaker
-stops. It works by re-sending audio to Whisper, so transcription cost rises
-(roughly up to 4x the audio). It is on by default; turn it off with
-`live_preview = false` or `-live-preview=false` to get one transcription per
-turn (`preview_interval_ms`, minimum 100, is config-file only).
-
-The status bar shows a session counter of tokens and audio duration. A price
-estimate is added only when all three of `price_audio_per_min`,
-`price_in_per_mtok` and `price_out_per_mtok` are set (optionally
-`price_currency`); there are no default prices. `config.example.toml` lists
-Scaleway figures for reference.
+Typed input (`-mic off`) needs none of the models.
 
 ## Usage
 
-```
-poly -langs fr,en                 # French on the left, English on the right
-poly -langs fr,en -mic off        # typed input only; no audio models loaded
-poly -langs fr,en -timestamps     # show times on rows
-poly -langs fr,en -translate-context 6
-poly -langs fr,en -denoise        # local noise suppression (needs setup-denoise.sh)
-poly -langs fr,en -log-file poly.log
+```sh
+poly -langs fr,en                  # French on the left, English on the right
+poly -langs fr,en -mic off         # typed input only; no audio models loaded
+poly -langs fr,en -timestamps      # show times next to sentences
+poly -langs fr,en -denoise         # local noise suppression
+poly -langs fr,en -live-preview=false   # one transcription per turn (cheaper)
+poly -langs fr,en -log-file poly.log    # timings and errors, never text
 ```
 
-`-langs` takes two Whisper language codes. Run `poly -h` for all flags.
+`-langs` takes two Whisper language codes, left pane first. Run `poly -h`
+for every flag.
 
 ### Keys
 
-| key | action |
+| Key | Action |
 |-----|--------|
-| Enter | send typed text |
-| Esc | cancel the pending translation (cancelled rows stay, greyed out); with live preview on, also drop the sentence being spoken (its provisional line and audio); sentences already committed stay |
-| Ctrl+P | mute / unmute the microphone |
-| PgUp / PgDn, mouse wheel | scroll both panes |
-| ? | help (when the input is empty) |
-| Ctrl+C | quit |
+| `Enter` | Send the typed sentence |
+| `Esc` | Cancel the translation in progress (the cancelled sentence stays, greyed out). With live preview on, also drop the sentence being spoken. Sentences already fixed stay. |
+| `Ctrl+P` | Mute or unmute the microphone |
+| `PgUp` / `PgDn`, mouse wheel | Scroll both panes |
+| `?` | Help (when the input is empty) |
+| `Ctrl+C` | Quit |
+
+## Configuration
+
+poly reads `~/.config/poly/config.toml` (or
+`$XDG_CONFIG_HOME/poly/config.toml`) if it exists. A file in the current
+directory is read only when you name it: `-config ./config.toml`.
+[`config.example.toml`](config.example.toml) lists every key with its
+matching flag. Unknown keys are an error.
+
+Settings are applied in this order of precedence: flags, then the config
+file, then `OPENAI_API_KEY` (key only), then built-in defaults.
+
+```toml
+base_url        = "https://api.scaleway.ai/<project_id>/v1"
+stt_model       = "whisper-large-v3"
+translate_model = "mistral-small-3.2-24b-instruct-2506"
+```
+
+| Key | Flag | Default | |
+|-----|------|---------|---|
+| `base_url` | `-base-url` | none (required) | Must be `https`; `http` only for localhost |
+| `stt_model` | `-stt-model` | `whisper-large-v3` | Speech-to-text model |
+| `translate_model` | `-translate-model` | `mistral-small-3.2-24b-instruct-2506` | Translation model |
+| `translate_context` | `-translate-context` | `4` | Previous sentences given to the translator |
+| `live_preview` | `-live-preview` | `true` | Show text while someone is speaking |
+| `preview_interval_ms` | | `1000` | Minimum time between live refreshes (≥ 100) |
+| `price_audio_per_min` | | unset | Price per minute of audio |
+| `price_in_per_mtok` | | unset | Price per million input tokens |
+| `price_out_per_mtok` | | unset | Price per million output tokens |
+| `price_currency` | | `""` | Label shown before the estimate, e.g. `€` |
+
+`base_url` has no default, so your key is never sent to a provider you did
+not choose. Keep the key in `OPENAI_API_KEY` rather than in a file, and never
+commit a config that contains one.
+
+### Live preview and cost
+
+Live preview works by sending the growing recording to Whisper about once a
+second. Transcription cost rises to roughly 4× the audio length at most.
+Turn it off with `live_preview = false` to get one transcription per turn.
+
+The status bar always shows a session counter, such as
+`18.3k tok · 4m10s audio`. A cost estimate (`≈ €0.042 · …`) is added only
+when all three `price_*` keys are set. poly ships no default prices;
+`config.example.toml` lists Scaleway's figures for reference.
+
+## How it works
+
+```
+mic ─▶ Silero VAD ─▶ Smart Turn ─▶ Whisper ─▶ language check ─▶ translation ─▶ panes
+          voice        end of turn    text       pair + text      chat model
+```
+
+1. **Voice activity.** Silero VAD finds speech. Sounds shorter than 250 ms
+   are dropped, and the silent edges of the audio are trimmed.
+2. **End of turn.** Smart Turn decides when the speaker has finished, so a
+   pause in the middle of a sentence does not cut it.
+3. **Transcription.** The audio goes to Whisper, which auto-detects the
+   language. poly checks that the language is one of your two and that the
+   text matches it. If not, it transcribes again in each of your languages
+   and keeps the better result. Low-confidence results are dropped as noise.
+4. **Translation.** A chat model translates each sentence, using the last
+   few sentences as context.
+5. **Live preview.** While the turn is still going, poly re-sends the
+   recording and shows the provisional text. When Whisper's output shows
+   that a sentence is finished and a new one has started, that sentence is
+   fixed and translated for good.
+
+## Privacy
+
+- No audio or conversation text is written to disk.
+- The log file (`-log-file`) records timings, states and errors only. It
+  never contains conversation text or your API key.
+- `./config.toml` is never loaded automatically, so a file in some directory
+  cannot redirect your key to another server.
+- `base_url` must use `https` (except for localhost).
 
 ## Evaluation
 
-`poly-eval` runs real clips through the same pipeline as the app and reports
-language-pick accuracy and noise rejection against your API.
+`poly-eval` runs recorded clips through the same pipeline as the app and
+reports language-pick accuracy and noise rejection against your API.
 
-```
+```sh
 go build -o poly-eval ./cmd/poly-eval
 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 10 eval/clips   # needs curl, ffmpeg, python3
 OPENAI_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json
 ```
 
-Audio is not committed (Tatoeba licenses vary); only the fetch script is. See
-`eval/README.md` for all options and the measured results with whisper-large-v3
-(language pick 20/20 on all six tested pairs; all 25 noise clips rejected, no
-short real word lost).
+With `whisper-large-v3`, poly picked the right language for 20/20 clips on
+each of the six pairs tested, and rejected all 25 noise clips without losing
+any short real word. Audio clips are not committed because Tatoeba licenses
+vary; only the fetch script is. See [`eval/README.md`](eval/README.md) for
+details.
+
+## Development
+
+```sh
+go test -race ./...
+go vet ./...
+```
+
+| Path | Contents |
+|------|----------|
+| `cmd/poly` | The app |
+| `cmd/poly-eval` | The evaluation tool |
+| `internal/vad`, `internal/silerovad`, `internal/smartturn` | Microphone capture, voice activity, end of turn |
+| `internal/stt` | Whisper client and language resolution |
+| `internal/translate` | Translation client |
+| `internal/live` | Live preview: refresh pacing and sentence commits |
+| `internal/convo` | The conversation log shown on screen |
+| `internal/ui` | Terminal interface (tview) |
+| `internal/usage` | Token and audio counter |
+| `docs/superpowers/specs` | Design documents |
+
+The README picture is rendered from the real UI code:
+`POLY_WRITE_SVG=1 go test ./internal/ui -run TestWriteREADMEScreenshot`.
 
 ## Known limitations
 
-- The live microphone path was verified only by hermetic tests in the
-  development environment, which had no capture device. Expect rough edges on
-  first real use.
-- The denoiser has not been tested on real cafe noise.
-- ALSA may print warnings to stderr before the UI starts. Redirect with
-  `poly ... 2>/dev/null` if they bother you.
+- The microphone path has been tested only with simulated audio. Expect
+  rough edges on first real use.
+- The denoiser has not been tested in a noisy café.
+- If both people speak inside one sentence that never splits, the text stays
+  mixed until the end of the turn.
+- On Linux, ALSA may print warnings before the interface starts. Hide them
+  with `2>/dev/null`.
+
+## Acknowledgements
+
+- [Silero VAD](https://github.com/snakers4/silero-vad) for voice activity
+  detection
+- [Smart Turn](https://github.com/pipecat-ai/smart-turn) for end-of-turn
+  detection
+- [GTCRN](https://github.com/Xiaobin-Rong/gtcrn) for denoising
+- [Whisper](https://github.com/openai/whisper) for speech-to-text
+- [Lingua](https://github.com/pemistahl/lingua-go) for checking the text's language
+- [tview](https://github.com/rivo/tview), [malgo](https://github.com/gen2brain/malgo)
+  and [onnxruntime_go](https://github.com/yalue/onnxruntime_go)
+- [Tatoeba](https://tatoeba.org) for the evaluation clips
