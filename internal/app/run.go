@@ -89,7 +89,7 @@ type Deps struct {
 // starts; the caller prints them.
 func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	if cfg.APIKey == "" {
-		return errors.New("no API key: set OPENAI_API_KEY or api_key in the config file")
+		return errors.New("no API key: set POLY_API_KEY (or OPENAI_API_KEY), or api_key in the config file")
 	}
 	stderr := d.Stderr
 	if stderr == nil {
@@ -134,19 +134,19 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 
 	resolver := d.Resolver
 	if resolver == nil {
-		sc := stt.NewClient(cfg.BaseURL, cfg.APIKey, cfg.STTModel)
+		sc := stt.NewClient(cfg.APIURL, cfg.APIKey, cfg.STTModel)
 		sc.SetMeter(meter)
 		resolver = &stt.Resolver{
 			T:              sc,
 			ID:             langid.New(pair),
 			Pair:           pair,
-			LogprobFloor:   cfg.NoiseLogprobFloor,
+			LogprobFloor:   cfg.NoiseMinLogprob,
 			MaxCompression: cfg.NoiseMaxCompression,
 		}
 	}
 	translator := d.Translator
 	if translator == nil {
-		tc := translate.NewClient(cfg.BaseURL, cfg.APIKey, cfg.TranslateModel)
+		tc := translate.NewClient(cfg.APIURL, cfg.APIKey, cfg.TranslateModel)
 		tc.SetMeter(meter)
 		translator = tc
 	}
@@ -161,9 +161,9 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 			closers[i]()
 		}
 	}()
-	micOff := cfg.MicDevice == MicOff && d.Audio == nil
+	micOff := cfg.Mic == MicOff && d.Audio == nil
 	var judge vad.TurnJudge
-	detSilence := cfg.VADSilenceMS
+	detSilence := cfg.VADEndSilenceMS
 	switch {
 	case d.Audio != nil:
 		audio = d.Audio
@@ -195,12 +195,12 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	var prev *live.Previewer
 	if cfg.LivePreview && audio != nil {
 		prev = live.New(live.Config{
-			IntervalMS: cfg.PreviewIntervalMS,
+			IntervalMS: cfg.LivePreviewIntervalMS,
 			MinMS:      cfg.VADMinSpeechMS,
 			LockAfter:  liveLockAfter,
 			Timeout:    convo.RequestTimeout,
 		}, refreshLogger{resolver}, cl)
-		log.Info("live preview on: refresh every %.0f ms", cfg.PreviewIntervalMS)
+		log.Info("live preview on: refresh every %.0f ms", cfg.LivePreviewIntervalMS)
 	}
 
 	var lst *vad.Listener
@@ -224,7 +224,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	var listenerDone chan struct{}
 	var workerDone chan struct{}
 	if audio != nil {
-		lst = vad.NewListener(audio.Chunks, audio.Detector, cfg.VADPrebufMS)
+		lst = vad.NewListener(audio.Chunks, audio.Detector, cfg.VADPreSpeechMS)
 		lst.SetSilenceMS(detSilence)
 		if cfg.VADMinSpeechMS > 0 && !lst.SetMinSpeechMS(cfg.VADMinSpeechMS) {
 			log.Warnf("vad_min_speech_ms ignored: detector cannot measure speech")
@@ -272,7 +272,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 			defer probsMu.Unlock()
 			return audio.Probs(pcm)
 		}
-		margin := time.Duration(cfg.TrimMarginMS * float64(time.Millisecond))
+		margin := time.Duration(cfg.VADTrimMarginMS * float64(time.Millisecond))
 
 		listenerDone = make(chan struct{})
 		go func() {
@@ -312,7 +312,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 				if ctx.Err() != nil {
 					continue
 				}
-				wav := trimToWAV(ut.pcm, probs, cfg.SileroThreshold, margin)
+				wav := trimToWAV(ut.pcm, probs, cfg.VADThreshold, margin)
 				switch {
 				case ut.liveID != 0 && wav != nil:
 					cl.FinishLive(ut.liveID, wav, ut.lang)
@@ -448,12 +448,12 @@ func openAudio(ctx context.Context, cfg config.Config) (a *Audio, judge vad.Turn
 	if perr != nil {
 		return fail(perr)
 	}
-	log.Info("audio paths: silero=%s smart_turn=%s denoise=%s onnxruntime=%s", cfg.SileroModel, cfg.SmartTurnModel, cfg.DenoiseModel, cfg.ONNXRuntimeLib)
-	if _, serr := os.Stat(cfg.SileroModel); serr != nil {
+	log.Info("audio paths: silero=%s smart_turn=%s denoise=%s onnxruntime=%s", cfg.VADModel, cfg.SmartTurnModel, cfg.DenoiseModel, cfg.ONNXRuntimeLib)
+	if _, serr := os.Stat(cfg.VADModel); serr != nil {
 		return fail(fmt.Errorf("silero VAD model: %w", serr))
 	}
 
-	silenceMS = cfg.VADSilenceMS
+	silenceMS = cfg.VADEndSilenceMS
 	var notices []string
 	if cfg.SmartTurn {
 		if cfg.SmartTurnModel == "" { // already warned by resolveAudioPaths
@@ -471,12 +471,12 @@ func openAudio(ctx context.Context, cfg config.Config) (a *Audio, judge vad.Turn
 		}
 	}
 
-	mainVAD, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.SileroModel, "", cfg.SileroThreshold, silenceMS, cfg.VADOnsetMS, audioio.SampleRate)
+	mainVAD, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.VADModel, "", cfg.VADThreshold, silenceMS, cfg.VADOnsetMS, audioio.SampleRate)
 	if err != nil {
 		return fail(fmt.Errorf("silero VAD: %w", err))
 	}
 	closers = append(closers, mainVAD.Close)
-	trimVAD, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.SileroModel, "", cfg.SileroThreshold, silenceMS, cfg.VADOnsetMS, audioio.SampleRate)
+	trimVAD, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.VADModel, "", cfg.VADThreshold, silenceMS, cfg.VADOnsetMS, audioio.SampleRate)
 	if err != nil {
 		return fail(fmt.Errorf("silero VAD (trim): %w", err))
 	}
@@ -484,7 +484,7 @@ func openAudio(ctx context.Context, cfg config.Config) (a *Audio, judge vad.Turn
 	tv := &guardedVAD{v: trimVAD}
 	closers = append(closers, tv.close)
 
-	chunks, err := audioio.NewMic(cfg.MicDevice).Stream(ctx)
+	chunks, err := audioio.NewMic(cfg.Mic).Stream(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("microphone: %w (use -mic off for typed input only)", err))
 	}

@@ -21,23 +21,23 @@ import (
 // Config holds every poly setting. Each field is a snake_case TOML key.
 type Config struct {
 	Languages      [2]string `toml:"languages"` // ISO-639-1, [0] = left pane
-	BaseURL        string    `toml:"base_url"`
+	APIURL         string    `toml:"api_url"`
 	APIKey         string    `toml:"api_key"`
 	STTModel       string    `toml:"stt_model"`
 	TranslateModel string    `toml:"translate_model"`
 
 	TranslateContext int    `toml:"translate_context"`
 	Timestamps       bool   `toml:"timestamps"`
-	MicDevice        string `toml:"mic_device"`
+	Mic              string `toml:"mic"`
 	ONNXRuntimeLib   string `toml:"onnxruntime_lib"`
 
-	SileroModel        string  `toml:"silero_vad_model"`
-	SileroThreshold    float64 `toml:"silero_vad_threshold"`
+	VADModel           string  `toml:"vad_model"`
+	VADThreshold       float64 `toml:"vad_threshold"`
 	VADMinSpeechMS     float64 `toml:"vad_min_speech_ms"`
-	VADSilenceMS       float64 `toml:"vad_silence_ms"`
+	VADEndSilenceMS    float64 `toml:"vad_end_silence_ms"`
 	VADOnsetMS         float64 `toml:"vad_onset_ms"`
-	VADPrebufMS        float64 `toml:"vad_prebuf_ms"`
-	TrimMarginMS       float64 `toml:"trim_margin_ms"`
+	VADPreSpeechMS     float64 `toml:"vad_pre_speech_ms"`
+	VADTrimMarginMS    float64 `toml:"vad_trim_margin_ms"`
 	SmartTurn          bool    `toml:"smart_turn"`
 	SmartTurnModel     string  `toml:"smart_turn_model"`
 	SmartTurnThreshold float64 `toml:"smart_turn_threshold"`
@@ -49,11 +49,11 @@ type Config struct {
 	Denoise      bool   `toml:"denoise"`
 	DenoiseModel string `toml:"denoise_model"`
 
-	NoiseLogprobFloor   float64 `toml:"noise_logprob_floor"`
+	NoiseMinLogprob     float64 `toml:"noise_min_logprob"`
 	NoiseMaxCompression float64 `toml:"noise_max_compression"`
 
-	LivePreview       bool    `toml:"live_preview"`
-	PreviewIntervalMS float64 `toml:"preview_interval_ms"`
+	LivePreview           bool    `toml:"live_preview"`
+	LivePreviewIntervalMS float64 `toml:"live_preview_interval_ms"`
 
 	// Optional prices for the session cost estimate; no defaults. The
 	// estimate is shown only when all three are set.
@@ -92,7 +92,7 @@ func userConfigPath(getenv func(string) string) string {
 	return filepath.Join(dir, "poly", "config.toml")
 }
 
-// Defaults returns the built-in configuration. BaseURL has no default: the
+// Defaults returns the built-in configuration. APIURL has no default: the
 // default models are Scaleway names, and silently sending a Scaleway key to
 // another provider must not happen, so the endpoint is always explicit.
 func Defaults() Config {
@@ -101,21 +101,21 @@ func Defaults() Config {
 		STTModel:              "whisper-large-v3",
 		TranslateModel:        "mistral-small-3.2-24b-instruct-2506",
 		TranslateContext:      4,
-		SileroThreshold:       0.6,
+		VADThreshold:          0.6,
 		VADMinSpeechMS:        250,
-		VADSilenceMS:          900,
+		VADEndSilenceMS:       900,
 		VADOnsetMS:            200,
-		VADPrebufMS:           500,
-		TrimMarginMS:          150,
+		VADPreSpeechMS:        500,
+		VADTrimMarginMS:       150,
 		SmartTurn:             true,
 		SmartTurnThreshold:    0.5,
 		SmartTurnPauseMS:      200,
 		SmartTurnRecheckMS:    600,
 		SmartTurnMaxSilenceMS: 2500,
-		NoiseLogprobFloor:     -1.0,
+		NoiseMinLogprob:       -1.0,
 		NoiseMaxCompression:   2.4,
 		LivePreview:           true,
-		PreviewIntervalMS:     1000,
+		LivePreviewIntervalMS: 1000,
 	}
 }
 
@@ -140,21 +140,22 @@ func newFlagSet(v *flagVars) *flag.FlagSet {
 	fs.Usage = func() {}
 	t := &v.tmp
 	fs.StringVar(&v.path, "config", "", "path to a TOML config file (default: ~/.config/poly/config.toml, or $XDG_CONFIG_HOME/poly/config.toml, if present; ./config.toml is read only via -config)")
-	fs.StringVar(&v.langs, "langs", "", "two language codes, left pane first, e.g. fr,en (default fr,en)")
-	fs.StringVar(&t.BaseURL, "base-url", t.BaseURL, "OpenAI-compatible API base URL (required), e.g. https://api.scaleway.ai/<project_id>/v1")
+	fs.StringVar(&v.langs, "languages", "", "two language codes, left pane first, e.g. fr,en (default fr,en)")
+	fs.StringVar(&v.langs, "langs", "", "short for -languages")
+	fs.StringVar(&t.APIURL, "api-url", t.APIURL, "OpenAI-compatible API URL (required; or env POLY_API_URL / OPENAI_BASE_URL), e.g. https://api.scaleway.ai/<project_id>/v1")
 	fs.StringVar(&t.STTModel, "stt-model", t.STTModel, "speech-to-text model")
 	fs.StringVar(&t.TranslateModel, "translate-model", t.TranslateModel, "translation model")
-	fs.IntVar(&t.TranslateContext, "translate-context", t.TranslateContext, "previous utterances given to the translator")
-	fs.BoolVar(&t.Timestamps, "timestamps", t.Timestamps, "show timestamps")
-	fs.StringVar(&t.MicDevice, "mic", t.MicDevice, "microphone device name; \"off\" disables audio (typed input only)")
+	fs.IntVar(&t.TranslateContext, "translate-context", t.TranslateContext, "previous sentences given to the translator as context")
+	fs.BoolVar(&t.Timestamps, "timestamps", t.Timestamps, "show times next to sentences")
+	fs.StringVar(&t.Mic, "mic", t.Mic, "microphone device name; \"off\" disables audio (typed input only)")
 	fs.StringVar(&t.ONNXRuntimeLib, "onnxruntime-lib", t.ONNXRuntimeLib, "path to the onnxruntime shared library")
-	fs.StringVar(&t.SileroModel, "silero-vad-model", t.SileroModel, "path to the Silero VAD model")
-	fs.Float64Var(&t.SileroThreshold, "silero-vad-threshold", t.SileroThreshold, "Silero speech probability threshold (0-1)")
-	fs.Float64Var(&t.VADMinSpeechMS, "vad-min-speech-ms", t.VADMinSpeechMS, "minimum speech duration in ms")
-	fs.Float64Var(&t.VADSilenceMS, "vad-silence-ms", t.VADSilenceMS, "trailing silence that ends an utterance, in ms")
-	fs.BoolVar(&t.SmartTurn, "smart-turn", t.SmartTurn, "use Smart Turn end-of-utterance detection")
+	fs.StringVar(&t.VADModel, "vad-model", t.VADModel, "path to the Silero voice activity model")
+	fs.Float64Var(&t.VADThreshold, "vad-threshold", t.VADThreshold, "speech probability threshold, between 0 and 1")
+	fs.Float64Var(&t.VADMinSpeechMS, "vad-min-speech-ms", t.VADMinSpeechMS, "shortest speech sent to transcription, in ms")
+	fs.Float64Var(&t.VADEndSilenceMS, "vad-end-silence-ms", t.VADEndSilenceMS, "silence that ends a turn when Smart Turn is off, in ms")
+	fs.BoolVar(&t.SmartTurn, "smart-turn", t.SmartTurn, "use Smart Turn end-of-turn detection")
 	fs.StringVar(&t.SmartTurnModel, "smart-turn-model", t.SmartTurnModel, "path to the Smart Turn model")
-	fs.BoolVar(&t.Denoise, "denoise", t.Denoise, "denoise audio before transcription")
+	fs.BoolVar(&t.Denoise, "denoise", t.Denoise, "local noise suppression before voice detection and transcription")
 	fs.StringVar(&t.DenoiseModel, "denoise-model", t.DenoiseModel, "path to the denoise model")
 	fs.BoolVar(&t.LivePreview, "live-preview", t.LivePreview, "show provisional text and translation while speaking; -live-preview=false turns it off (it re-sends audio, raising Whisper cost)")
 	fs.StringVar(&t.LogFile, "log-file", t.LogFile, "write a timings/errors log (never conversation text) to this file")
@@ -173,8 +174,9 @@ func Usage(w io.Writer) {
 // Load builds a Config: defaults, then the TOML file (-config PATH, else the
 // per-user <config dir>/poly/config.toml -- $XDG_CONFIG_HOME/poly/config.toml
 // or ~/.config/poly/config.toml -- if it exists; ./config.toml is never read
-// implicitly), then OPENAI_API_KEY (when no key is set in the file), then
-// explicitly-set flags.
+// implicitly), then the environment for whatever the file left unset
+// (api_key: POLY_API_KEY, then OPENAI_API_KEY; api_url: POLY_API_URL, then
+// OPENAI_BASE_URL), then explicitly-set flags.
 //
 // -h/-help returns flag.ErrHelp; any other command-line parse error is
 // returned as a *UsageError. Print Usage in both cases.
@@ -199,7 +201,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 
 	// File.
 	// Without -config only the per-user file is auto-loaded; ./config.toml is
-	// never read implicitly (an untrusted directory could redirect base_url).
+	// never read implicitly (an untrusted directory could redirect api_url).
 	explicit := set["config"]
 	if !explicit {
 		if p := userConfigPath(getenv); p != "" {
@@ -219,35 +221,41 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	}
 
 	if cfg.APIKey == "" {
-		cfg.APIKey = getenv("OPENAI_API_KEY")
+		cfg.APIKey = firstEnv(getenv, "POLY_API_KEY", "OPENAI_API_KEY")
+	}
+	if cfg.APIURL == "" {
+		cfg.APIURL = firstEnv(getenv, "POLY_API_URL", "OPENAI_BASE_URL")
 	}
 
 	// Flags override, only those explicitly set.
 	over := map[string]func(){
-		"base-url":             func() { cfg.BaseURL = tmp.BaseURL },
-		"stt-model":            func() { cfg.STTModel = tmp.STTModel },
-		"translate-model":      func() { cfg.TranslateModel = tmp.TranslateModel },
-		"translate-context":    func() { cfg.TranslateContext = tmp.TranslateContext },
-		"timestamps":           func() { cfg.Timestamps = tmp.Timestamps },
-		"mic":                  func() { cfg.MicDevice = tmp.MicDevice },
-		"onnxruntime-lib":      func() { cfg.ONNXRuntimeLib = tmp.ONNXRuntimeLib },
-		"silero-vad-model":     func() { cfg.SileroModel = tmp.SileroModel },
-		"silero-vad-threshold": func() { cfg.SileroThreshold = tmp.SileroThreshold },
-		"vad-min-speech-ms":    func() { cfg.VADMinSpeechMS = tmp.VADMinSpeechMS },
-		"vad-silence-ms":       func() { cfg.VADSilenceMS = tmp.VADSilenceMS },
-		"smart-turn":           func() { cfg.SmartTurn = tmp.SmartTurn },
-		"smart-turn-model":     func() { cfg.SmartTurnModel = tmp.SmartTurnModel },
-		"denoise":              func() { cfg.Denoise = tmp.Denoise },
-		"denoise-model":        func() { cfg.DenoiseModel = tmp.DenoiseModel },
-		"live-preview":         func() { cfg.LivePreview = tmp.LivePreview },
-		"log-file":             func() { cfg.LogFile = tmp.LogFile },
+		"api-url":            func() { cfg.APIURL = tmp.APIURL },
+		"stt-model":          func() { cfg.STTModel = tmp.STTModel },
+		"translate-model":    func() { cfg.TranslateModel = tmp.TranslateModel },
+		"translate-context":  func() { cfg.TranslateContext = tmp.TranslateContext },
+		"timestamps":         func() { cfg.Timestamps = tmp.Timestamps },
+		"mic":                func() { cfg.Mic = tmp.Mic },
+		"onnxruntime-lib":    func() { cfg.ONNXRuntimeLib = tmp.ONNXRuntimeLib },
+		"vad-model":          func() { cfg.VADModel = tmp.VADModel },
+		"vad-threshold":      func() { cfg.VADThreshold = tmp.VADThreshold },
+		"vad-min-speech-ms":  func() { cfg.VADMinSpeechMS = tmp.VADMinSpeechMS },
+		"vad-end-silence-ms": func() { cfg.VADEndSilenceMS = tmp.VADEndSilenceMS },
+		"smart-turn":         func() { cfg.SmartTurn = tmp.SmartTurn },
+		"smart-turn-model":   func() { cfg.SmartTurnModel = tmp.SmartTurnModel },
+		"denoise":            func() { cfg.Denoise = tmp.Denoise },
+		"denoise-model":      func() { cfg.DenoiseModel = tmp.DenoiseModel },
+		"live-preview":       func() { cfg.LivePreview = tmp.LivePreview },
+		"log-file":           func() { cfg.LogFile = tmp.LogFile },
 	}
 	for name, apply := range over {
 		if set[name] {
 			apply()
 		}
 	}
-	if set["langs"] {
+	if set["languages"] && set["langs"] {
+		return Config{}, &UsageError{Err: errors.New("-languages and -langs are the same flag; give one")}
+	}
+	if set["languages"] || set["langs"] {
 		parts := strings.Split(langs, ",")
 		if len(parts) != 2 {
 			return Config{}, errors.New("languages: need exactly two")
@@ -259,6 +267,16 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// firstEnv returns the first non-empty value among the named variables.
+func firstEnv(getenv func(string) string, names ...string) string {
+	for _, n := range names {
+		if v := getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Validate checks the configuration. Errors never include the API key.
@@ -277,15 +295,15 @@ func (c Config) Validate() error {
 	if c.TranslateContext < 0 {
 		return fmt.Errorf("translate_context: must be >= 0, got %d", c.TranslateContext)
 	}
-	if !(c.SileroThreshold > 0 && c.SileroThreshold < 1) {
-		return fmt.Errorf("silero_vad_threshold: must be between 0 and 1 (exclusive), got %g", c.SileroThreshold)
+	if !(c.VADThreshold > 0 && c.VADThreshold < 1) {
+		return fmt.Errorf("vad_threshold: must be between 0 and 1 (exclusive), got %g", c.VADThreshold)
 	}
 	if !(c.SmartTurnThreshold > 0 && c.SmartTurnThreshold < 1) {
 		return fmt.Errorf("smart_turn_threshold: must be between 0 and 1 (exclusive), got %g", c.SmartTurnThreshold)
 	}
 	for name, v := range map[string]float64{
-		"vad_min_speech_ms": c.VADMinSpeechMS, "vad_silence_ms": c.VADSilenceMS,
-		"vad_onset_ms": c.VADOnsetMS, "vad_prebuf_ms": c.VADPrebufMS, "trim_margin_ms": c.TrimMarginMS,
+		"vad_min_speech_ms": c.VADMinSpeechMS, "vad_end_silence_ms": c.VADEndSilenceMS,
+		"vad_onset_ms": c.VADOnsetMS, "vad_pre_speech_ms": c.VADPreSpeechMS, "vad_trim_margin_ms": c.VADTrimMarginMS,
 		"smart_turn_pause_ms": c.SmartTurnPauseMS, "smart_turn_recheck_ms": c.SmartTurnRecheckMS,
 		"smart_turn_max_silence_ms": c.SmartTurnMaxSilenceMS,
 	} {
@@ -294,14 +312,14 @@ func (c Config) Validate() error {
 		}
 	}
 	for name, v := range map[string]float64{
-		"noise_logprob_floor": c.NoiseLogprobFloor, "noise_max_compression": c.NoiseMaxCompression,
+		"noise_min_logprob": c.NoiseMinLogprob, "noise_max_compression": c.NoiseMaxCompression,
 	} {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return fmt.Errorf("%s: must be a finite number, got %g", name, v)
 		}
 	}
-	if !(c.PreviewIntervalMS >= 100) || math.IsInf(c.PreviewIntervalMS, 0) {
-		return fmt.Errorf("preview_interval_ms: must be >= 100, got %g", c.PreviewIntervalMS)
+	if !(c.LivePreviewIntervalMS >= 100) || math.IsInf(c.LivePreviewIntervalMS, 0) {
+		return fmt.Errorf("live_preview_interval_ms: must be >= 100, got %g", c.LivePreviewIntervalMS)
 	}
 	for name, p := range map[string]*float64{
 		"price_audio_per_min": c.PriceAudioPerMin, "price_in_per_mtok": c.PriceInPerMTok,
@@ -311,16 +329,16 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s: must be a finite number >= 0, got %g", name, *p)
 		}
 	}
-	return validateBaseURL(c.BaseURL)
+	return validateAPIURL(c.APIURL)
 }
 
-func validateBaseURL(raw string) error {
+func validateAPIURL(raw string) error {
 	if raw == "" {
-		return errors.New("base_url: required (e.g. https://api.scaleway.ai/<project_id>/v1)")
+		return errors.New("api_url: required: set api_url in the config file, -api-url, or POLY_API_URL (e.g. https://api.scaleway.ai/<project_id>/v1)")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return errors.New("base_url: not a valid URL")
+		return errors.New("api_url: not a valid URL")
 	}
 	switch u.Scheme {
 	case "https":
@@ -331,5 +349,5 @@ func validateBaseURL(raw string) error {
 			return nil
 		}
 	}
-	return errors.New("base_url: must be https (http is allowed only for localhost, 127.0.0.1 or ::1)")
+	return errors.New("api_url: must be https (http is allowed only for localhost, 127.0.0.1 or ::1)")
 }

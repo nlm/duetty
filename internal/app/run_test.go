@@ -230,7 +230,7 @@ func TestNoConversationTextInLog(t *testing.T) {
 func TestStartupFailsWithoutKey(t *testing.T) {
 	cfg := testConfig()
 	cfg.APIKey = ""
-	cfg.MicDevice = "off"
+	cfg.Mic = "off"
 	err := Run(context.Background(), cfg, Deps{UI: newFakeUI(), LogSink: &bufSink{}, Stderr: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
 		t.Fatalf("want error mentioning OPENAI_API_KEY, got %v", err)
@@ -239,8 +239,8 @@ func TestStartupFailsWithoutKey(t *testing.T) {
 
 func TestMicOffTypedInput(t *testing.T) {
 	cfg := testConfig()
-	cfg.MicDevice = "off"
-	cfg.SileroModel = "" // nothing audio-related may be needed
+	cfg.Mic = "off"
+	cfg.VADModel = "" // nothing audio-related may be needed
 	u := newFakeUI()
 	u.wantDone = 1
 	err := Run(context.Background(), cfg, Deps{
@@ -467,7 +467,7 @@ func (u *fakeUI) lastUsage() string {
 func TestUsageShownInStatus(t *testing.T) {
 	for _, priced := range []bool{false, true} {
 		cfg := testConfig()
-		cfg.MicDevice = "off"
+		cfg.Mic = "off"
 		if priced {
 			a, in, out := 0.003, 0.15, 0.35
 			cfg.PriceAudioPerMin, cfg.PriceInPerMTok, cfg.PriceOutPerMTok = &a, &in, &out

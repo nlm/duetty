@@ -8,8 +8,8 @@ import (
 	"github.com/gen2brain/malgo"
 )
 
-// matchDeviceIndex resolves want (as accepted by -mic-device/-speaker-device
-// / the mic_device/speaker_device config keys) against names, the enumerated
+// matchDeviceIndex resolves want (as accepted by -mic / the mic config key)
+// against names, the enumerated
 // device names in listing order: a numeric index into names, or a
 // case-insensitive substring of a name, first match wins. Pure and
 // hardware-free (unlike findDevice/deviceLabel, which each enumerate real
@@ -41,8 +41,8 @@ func deviceNames(infos []malgo.DeviceInfo) []string {
 	return names
 }
 
-// findDevice resolves a device name/index string (as set via -mic-device /
-// -speaker-device / the mic_device/speaker_device config keys) to a malgo
+// findDevice resolves a device name/index string (as set via -mic / the mic
+// config key) to a malgo
 // device ID. An empty want returns (nil, nil), meaning "use the system
 // default device".
 func findDevice(ctx malgo.Context, kind malgo.DeviceType, want string) (*malgo.DeviceID, error) {

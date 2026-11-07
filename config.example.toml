@@ -1,70 +1,159 @@
-# poly config. Auto-loaded from <user config dir>/poly/config.toml (e.g.
-# ~/.config/poly/config.toml) if it exists; or pass `poly -config PATH`.
-# ./config.toml in the working directory is NOT read unless given via -config.
-# Precedence: explicit flag > this file > OPENAI_API_KEY (key only) > defaults.
-# Unknown keys are an error. Do not commit a file containing api_key.
+# poly configuration
+#
+# Where poly looks for it:
+#   - ~/.config/poly/config.toml ($XDG_CONFIG_HOME/poly/config.toml) if it exists;
+#   - or the file given with -config PATH.
+#   A config.toml in the current directory is never read unless named with -config.
+#
+# Precedence: command-line flag > this file > environment > built-in default.
+# Unknown keys are an error.
+#
+# Every key below shows its default, commented out. Uncomment only what you
+# change. "(-flag)" names the matching command-line flag; "(file only)" keys
+# have none.
 
-languages = ["fr", "en"]          # exactly two Whisper codes; first = left pane (-langs fr,en)
-base_url = "https://api.scaleway.ai/<project_id>/v1"  # REQUIRED, no default: OpenAI-compatible
-                                  # endpoint (-base-url). The default models are Scaleway names.
-# api_key = ""                    # or env OPENAI_API_KEY
-stt_model = "whisper-large-v3"    # -stt-model
-translate_model = "mistral-small-3.2-24b-instruct-2506"  # -translate-model
-translate_context = 4             # previous utterances given to translator (-translate-context)
-timestamps = false                # -timestamps
-# mic_device = ""                 # -mic; empty = default input; "off" = no audio capture
-                                  # (typed input only; no VAD/Silero/Smart Turn loaded)
-# onnxruntime_lib = ""            # path to libonnxruntime (-onnxruntime-lib); empty = look for
-                                  # third_party/onnxruntime/lib/libonnxruntime.so next to the poly
-                                  # binary, else the system search
+# --- API -------------------------------------------------------------------
+# Any OpenAI-compatible API with a speech-to-text model and a chat model.
 
-# Default model/runtime paths are resolved ONLY next to the (symlink-resolved)
-# poly binary, never the current directory. `go run` builds into a temp dir, so
-# either pass these paths explicitly or `go build -o poly ./cmd/poly` in the
-# repo root after scripts/setup-models.sh.
+# API endpoint. Required, no default, so your key only ever goes to a provider
+# you chose. Must be https (http is allowed for localhost only).
+# Environment: POLY_API_URL, then OPENAI_BASE_URL. (-api-url)
+api_url = "https://api.scaleway.ai/<project_id>/v1"
 
-# Silero VAD (required)
-# silero_vad_model = ""           # -silero-vad-model; empty = models/silero_vad.onnx next to the
-                                  # poly binary (scripts/setup-models.sh)
-silero_vad_threshold = 0.6        # 0..1 exclusive (-silero-vad-threshold)
-vad_min_speech_ms = 250           # -vad-min-speech-ms
-vad_silence_ms = 900              # -vad-silence-ms
-vad_onset_ms = 200
-vad_prebuf_ms = 500
-trim_margin_ms = 150
+# API key. Prefer the environment: POLY_API_KEY, then OPENAI_API_KEY.
+# Never commit a file that contains a key. (file only)
+# api_key = ""
 
-# Smart Turn end-of-utterance (missing model => fixed silence)
-smart_turn = true                 # -smart-turn
-# smart_turn_model = ""           # -smart-turn-model; empty = models/smart-turn/smart-turn-v3.2-cpu.onnx
-                                  # next to the poly binary
-smart_turn_threshold = 0.5
-smart_turn_pause_ms = 200
-smart_turn_recheck_ms = 600
-smart_turn_max_silence_ms = 2500
+# Speech-to-text model. (-stt-model)
+# stt_model = "whisper-large-v3"
 
-# Local noise suppression before VAD/Whisper (GTCRN; scripts/setup-denoise.sh;
-# missing model => off)
-denoise = false                   # -denoise
-# denoise_model = ""              # -denoise-model; empty = models/denoise/gtcrn_simple.onnx
-                                  # next to the poly binary
+# Translation model. (-translate-model)
+# translate_model = "mistral-small-3.2-24b-instruct-2506"
 
-# Noise rejection thresholds (calibrated, see eval/README.md)
-noise_logprob_floor = -1.0
-noise_max_compression = 2.4
+# Previous sentences given to the translator as context. (-translate-context)
+# translate_context = 4
 
-# Live preview: show provisional text and translation while someone speaks.
-# On by default; it re-sends audio, so Whisper cost rises (up to ~4x audio).
-# Set live_preview = false (or -live-preview=false) for one transcription per turn.
-# live_preview = true             # -live-preview
-# preview_interval_ms = 1000      # min 100; config file only
+# --- Conversation ------------------------------------------------------------
 
-# Session cost estimate in the status bar. No defaults: the estimate appears
-# only when all three prices are set.
-# For reference, not defaults -- Scaleway: whisper-large-v3 EUR 0.003/min;
-# mistral-small-3.2 EUR 0.15 in / EUR 0.35 out per million tokens.
+# The two Whisper language codes; the first one is the left pane. (-languages, -langs)
+# languages = ["fr", "en"]
+
+# Show times next to sentences. (-timestamps)
+# timestamps = false
+
+# Microphone: "" = system default, a device name or number, or "off" for
+# typed input only (no audio models are loaded). (-mic)
+# mic = ""
+
+# --- Live preview ------------------------------------------------------------
+# Shows text and its translation while someone is still speaking, by sending
+# the growing recording to Whisper again. Raises transcription cost to about
+# 4x the audio at most. false = one transcription per turn.
+
+# (-live-preview)
+# live_preview = true
+
+# Minimum time between two refreshes, in ms; at least 100. (file only)
+# live_preview_interval_ms = 1000
+
+# --- Cost estimate -----------------------------------------------------------
+# The status bar always counts tokens and audio. A cost estimate is added only
+# when all three prices are set. There are no default prices. (file only)
+# For reference, Scaleway: whisper-large-v3 0.003 EUR/min; mistral-small-3.2
+# 0.15 EUR in / 0.35 EUR out per million tokens.
+
+# Price per minute of audio.
 # price_audio_per_min = 0.003
-# price_in_per_mtok = 0.15
-# price_out_per_mtok = 0.35
-# price_currency = "€"
 
-# log_file = ""                   # -log-file; timings/errors only, never conversation text
+# Price per million input (prompt) tokens.
+# price_in_per_mtok = 0.15
+
+# Price per million output (completion) tokens.
+# price_out_per_mtok = 0.35
+
+# Label shown before the estimate, e.g. "€".
+# price_currency = ""
+
+# --- Local models ------------------------------------------------------------
+# Empty paths are looked up next to the poly binary only, never in the current
+# directory: run scripts/setup-models.sh, then `go build -o poly ./cmd/poly`
+# in the repo root.
+
+# onnxruntime shared library. "" = third_party/onnxruntime/lib/ next to the
+# binary, else the system library search. (-onnxruntime-lib)
+# onnxruntime_lib = ""
+
+# --- Voice activity (Silero VAD) ---------------------------------------------
+
+# Silero VAD model. "" = models/silero_vad.onnx. (-vad-model)
+# vad_model = ""
+
+# Speech probability above which audio counts as speech, between 0 and 1.
+# (-vad-threshold)
+# vad_threshold = 0.6
+
+# Shortest speech sent to transcription, in ms; shorter sounds are dropped
+# as noise. (-vad-min-speech-ms)
+# vad_min_speech_ms = 250
+
+# How long speech must last before a turn starts, in ms. (file only)
+# vad_onset_ms = 200
+
+# Audio kept from just before speech starts, so the first syllable is not
+# cut, in ms. (file only)
+# vad_pre_speech_ms = 500
+
+# Silence kept around the speech when the edges of a recording are trimmed,
+# in ms. (file only)
+# vad_trim_margin_ms = 150
+
+# Silence that ends a turn when Smart Turn is off or its model is missing, in
+# ms. (-vad-end-silence-ms)
+# vad_end_silence_ms = 900
+
+# --- End of turn (Smart Turn) ------------------------------------------------
+# Smart Turn decides from the audio whether the speaker has finished, so a
+# pause inside a sentence does not end the turn.
+
+# (-smart-turn)
+# smart_turn = true
+
+# Smart Turn model. "" = models/smart-turn/smart-turn-v3.2-cpu.onnx.
+# (-smart-turn-model)
+# smart_turn_model = ""
+
+# Probability above which Smart Turn's "finished" is accepted, between 0 and
+# 1. (file only)
+# smart_turn_threshold = 0.5
+
+# Silence before Smart Turn is first asked, in ms. (file only)
+# smart_turn_pause_ms = 200
+
+# Further silence after which it is asked again, in ms. (file only)
+# smart_turn_recheck_ms = 600
+
+# Silence that ends the turn without asking, in ms. (file only)
+# smart_turn_max_silence_ms = 2500
+
+# --- Noise -------------------------------------------------------------------
+
+# Local noise suppression (GTCRN) before voice detection and transcription.
+# Needs scripts/setup-denoise.sh. (-denoise)
+# denoise = false
+
+# Denoiser model. "" = models/denoise/gtcrn_simple.onnx. (-denoise-model)
+# denoise_model = ""
+
+# Whisper results below this average log-probability are dropped as noise.
+# Calibrated, see eval/README.md. (file only)
+# noise_min_logprob = -1.0
+
+# Whisper results above this compression ratio (repetitive output) are dropped
+# as noise. (file only)
+# noise_max_compression = 2.4
+
+# --- Logging -----------------------------------------------------------------
+
+# Log file for timings, states and errors. Never contains conversation text or
+# the API key. "" = no log. (-log-file)
+# log_file = ""

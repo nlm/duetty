@@ -98,7 +98,7 @@ func run() error {
 	floor := fs.Float64("floor", 0, "noise logprob floor (default: config)")
 	maxc := fs.Float64("maxcomp", 0, "noise max compression (default: config)")
 	cfgPath := fs.String("config", "", "config file")
-	baseURL := fs.String("base-url", "", "OpenAI-compatible API base URL (default: config)")
+	apiURL := fs.String("api-url", "", "OpenAI-compatible API URL (default: config)")
 	dn := fs.Bool("denoise", false, "run every clip through the local denoiser first (as -denoise in poly)")
 	fs.Parse(os.Args[1:])
 
@@ -106,18 +106,18 @@ func run() error {
 	if *cfgPath != "" {
 		cargs = []string{"-config", *cfgPath}
 	}
-	if *baseURL != "" {
-		cargs = append(cargs, "-base-url", *baseURL)
+	if *apiURL != "" {
+		cargs = append(cargs, "-api-url", *apiURL)
 	}
 	cfg, err := config.Load(cargs, os.Getenv)
 	if err != nil {
 		return err
 	}
 	if cfg.APIKey == "" {
-		return errors.New("no API key: set OPENAI_API_KEY")
+		return errors.New("no API key: set POLY_API_KEY (or OPENAI_API_KEY)")
 	}
 	if *floor == 0 {
-		*floor = cfg.NoiseLogprobFloor
+		*floor = cfg.NoiseMinLogprob
 	}
 	if *maxc == 0 {
 		*maxc = cfg.NoiseMaxCompression
@@ -139,7 +139,7 @@ func run() error {
 		d.Close() // fail fast; each clip gets a fresh denoiser
 		fmt.Printf("denoise: on (%s)\n", cfg.DenoiseModel)
 	}
-	vad, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.SileroModel, "", cfg.SileroThreshold, cfg.VADSilenceMS, cfg.VADOnsetMS, audioio.SampleRate)
+	vad, err := silerovad.NewVAD(cfg.ONNXRuntimeLib, cfg.VADModel, "", cfg.VADThreshold, cfg.VADEndSilenceMS, cfg.VADOnsetMS, audioio.SampleRate)
 	if err != nil {
 		return fmt.Errorf("silero: %w", err)
 	}
@@ -158,11 +158,11 @@ func run() error {
 		}
 		voiced := 0
 		for _, p := range probs {
-			if float64(p) >= cfg.SileroThreshold {
+			if float64(p) >= cfg.VADThreshold {
 				voiced++
 			}
 		}
-		out := trim.Trim(pcm, probs, cfg.SileroThreshold, time.Duration(cfg.TrimMarginMS)*time.Millisecond)
+		out := trim.Trim(pcm, probs, cfg.VADThreshold, time.Duration(cfg.VADTrimMarginMS)*time.Millisecond)
 		switch {
 		case out == nil:
 			return prepared{id: id, dropped: "no voice after trim"}, nil
@@ -231,7 +231,7 @@ func run() error {
 		}
 	}
 
-	ca := &cache{next: stt.NewClient(cfg.BaseURL, cfg.APIKey, cfg.STTModel), m: map[string]*entry{}}
+	ca := &cache{next: stt.NewClient(cfg.APIURL, cfg.APIKey, cfg.STTModel), m: map[string]*entry{}}
 	resolve := func(p prepared, pair [2]string) (stt.Resolved, error) {
 		r := stt.Resolver{T: clipT{ca, p.id, p.wav16k}, ID: langid.New(pair), Pair: pair, LogprobFloor: *floor, MaxCompression: *maxc}
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

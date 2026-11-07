@@ -41,7 +41,7 @@ func TestResolvePathsExeDirWinsOverCwd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SileroModel != "/opt/poly/models/silero_vad.onnx" ||
+	if got.VADModel != "/opt/poly/models/silero_vad.onnx" ||
 		got.SmartTurnModel != "/opt/poly/models/smart-turn/smart-turn-v3.2-cpu.onnx" ||
 		got.ONNXRuntimeLib != "/opt/poly/third_party/onnxruntime/lib/libonnxruntime.so" {
 		t.Fatalf("got %+v", got)
@@ -74,14 +74,14 @@ func TestResolvePathsIgnoresCwd(t *testing.T) {
 
 func TestResolvePathsExplicitUntouched(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.SileroModel = "/mine/silero.onnx" // does not even exist: not rewritten
+	cfg.VADModel = "/mine/silero.onnx" // does not even exist: not rewritten
 	cfg.SmartTurnModel = "/mine/st.onnx"
 	cfg.ONNXRuntimeLib = "/mine/libort.so"
 	got, warns, err := resolveAudioPaths(cfg, fakePathEnv("/opt/poly/models/silero_vad.onnx"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SileroModel != cfg.SileroModel || got.SmartTurnModel != cfg.SmartTurnModel || got.ONNXRuntimeLib != cfg.ONNXRuntimeLib {
+	if got.VADModel != cfg.VADModel || got.SmartTurnModel != cfg.SmartTurnModel || got.ONNXRuntimeLib != cfg.ONNXRuntimeLib {
 		t.Fatalf("explicit paths rewritten: %+v", got)
 	}
 	if len(warns) != 0 {
@@ -122,8 +122,8 @@ func TestResolvePathsExeDirError(t *testing.T) {
 	env := fakePathEnv("/work/models/silero_vad.onnx")
 	env.exeDir = func() (string, error) { return "", errors.New("no exe") }
 	got, _, err := resolveAudioPaths(config.Defaults(), env)
-	if err == nil || got.SileroModel != "" || !strings.Contains(err.Error(), "executable directory unknown") {
-		t.Fatalf("got %q err=%v", got.SileroModel, err)
+	if err == nil || got.VADModel != "" || !strings.Contains(err.Error(), "executable directory unknown") {
+		t.Fatalf("got %q err=%v", got.VADModel, err)
 	}
 }
 

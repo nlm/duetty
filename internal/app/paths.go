@@ -94,14 +94,14 @@ func resolveAudioPaths(cfg config.Config, env pathEnv) (config.Config, []string,
 		}
 		cfg.DenoiseModel = p
 	}
-	if cfg.SileroModel == "" {
+	if cfg.VADModel == "" {
 		p, tried := env.find(defaultSileroModel)
 		if p == "" {
 			return cfg, warns, fmt.Errorf(
-				"silero VAD model not found next to the poly binary (%s): run scripts/setup-models.sh and `go build -o poly ./cmd/poly` in the repo root, set silero_vad_model / -silero-vad-model, or use -mic off",
+				"silero VAD model not found next to the poly binary (%s): run scripts/setup-models.sh and `go build -o poly ./cmd/poly` in the repo root, set vad_model / -vad-model, or use -mic off",
 				triedText(tried))
 		}
-		cfg.SileroModel = p
+		cfg.VADModel = p
 	}
 	return cfg, warns, nil
 }

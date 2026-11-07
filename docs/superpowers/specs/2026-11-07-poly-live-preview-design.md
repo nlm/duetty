@@ -77,7 +77,7 @@ captured so far, from which already-committed audio has been removed (the
 ### Refresh loop (one per live turn)
 
 - The live recording is sent to Whisper again once enough new audio has
-  arrived: at least `preview_interval_ms` (default 1000), and at least a
+  arrived: at least `live_preview_interval_ms` (default 1000), and at least a
   quarter of the live recording's length. A 4 s recording refreshes every
   second; a 20 s one that never splits refreshes every 5 s. This keeps the
   billed audio at about 4× real time at most, however long a recording
@@ -186,7 +186,7 @@ starts a new turn). Already-committed sentences of that turn stay.
 | key | flag | default |
 |---|---|---|
 | `live_preview` | `-live-preview` | `true` |
-| `preview_interval_ms` | — | `1000` |
+| `live_preview_interval_ms` | — | `1000` |
 | `price_audio_per_min` | — | unset |
 | `price_in_per_mtok` | — | unset |
 | `price_out_per_mtok` | — | unset |

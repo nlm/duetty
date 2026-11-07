@@ -39,8 +39,9 @@ git clone https://github.com/nlm/poly.git && cd poly
 scripts/setup-models.sh            # Silero VAD, Smart Turn, onnxruntime
 go build -o poly ./cmd/poly
 
-export OPENAI_API_KEY=...          # your provider's API key
-./poly -langs fr,en -base-url https://api.scaleway.ai/<project_id>/v1
+export POLY_API_URL=https://api.scaleway.ai/<project_id>/v1
+export POLY_API_KEY=...            # your provider's API key
+./poly -languages fr,en
 ```
 
 Speak, or type a sentence and press Enter. Press `?` to see the keys and
@@ -68,7 +69,7 @@ go build -o poly ./cmd/poly        # build in the repo root
 poly looks for `models/` and `third_party/onnxruntime/` **next to the `poly`
 binary only**, never in the current directory. Build into the repo root as
 shown above. If the binary lives elsewhere (for example with `go run`), pass
-`-silero-vad-model`, `-smart-turn-model`, `-onnxruntime-lib` and
+`-vad-model`, `-smart-turn-model`, `-onnxruntime-lib` and
 `-denoise-model` explicitly.
 
 Typed input (`-mic off`) needs none of the models.
@@ -76,16 +77,16 @@ Typed input (`-mic off`) needs none of the models.
 ## Usage
 
 ```sh
-poly -langs fr,en                  # French on the left, English on the right
-poly -langs fr,en -mic off         # typed input only; no audio models loaded
-poly -langs fr,en -timestamps      # show times next to sentences
-poly -langs fr,en -denoise         # local noise suppression
-poly -langs fr,en -live-preview=false   # one transcription per turn (cheaper)
-poly -langs fr,en -log-file poly.log    # timings and errors, never text
+poly -languages fr,en                  # French on the left, English on the right
+poly -languages fr,en -mic off         # typed input only; no audio models loaded
+poly -languages fr,en -timestamps      # show times next to sentences
+poly -languages fr,en -denoise         # local noise suppression
+poly -languages fr,en -live-preview=false   # one transcription per turn (cheaper)
+poly -languages fr,en -log-file poly.log    # timings and errors, never text
 ```
 
-`-langs` takes two Whisper language codes, left pane first. Run `poly -h`
-for every flag.
+`-languages` (or `-langs`) takes two Whisper language codes, left pane
+first. Run `poly -h` for every flag.
 
 ### Keys
 
@@ -100,37 +101,31 @@ for every flag.
 
 ## Configuration
 
-poly reads `~/.config/poly/config.toml` (or
-`$XDG_CONFIG_HOME/poly/config.toml`) if it exists. A file in the current
-directory is read only when you name it: `-config ./config.toml`.
-[`config.example.toml`](config.example.toml) lists every key with its
-matching flag. Unknown keys are an error.
-
-Settings are applied in this order of precedence: flags, then the config
-file, then `OPENAI_API_KEY` (key only), then built-in defaults.
+Put settings in `~/.config/poly/config.toml`. A file elsewhere is read only
+when you name it with `-config`. Flags override the file, and the file
+overrides the environment.
 
 ```toml
-base_url        = "https://api.scaleway.ai/<project_id>/v1"
-stt_model       = "whisper-large-v3"
-translate_model = "mistral-small-3.2-24b-instruct-2506"
+api_url   = "https://api.scaleway.ai/<project_id>/v1"
+languages = ["fr", "en"]
 ```
 
-| Key | Flag | Default | |
-|-----|------|---------|---|
-| `base_url` | `-base-url` | none (required) | Must be `https`; `http` only for localhost |
-| `stt_model` | `-stt-model` | `whisper-large-v3` | Speech-to-text model |
-| `translate_model` | `-translate-model` | `mistral-small-3.2-24b-instruct-2506` | Translation model |
-| `translate_context` | `-translate-context` | `4` | Previous sentences given to the translator |
-| `live_preview` | `-live-preview` | `true` | Show text while someone is speaking |
-| `preview_interval_ms` | | `1000` | Minimum time between live refreshes (≥ 100) |
-| `price_audio_per_min` | | unset | Price per minute of audio |
-| `price_in_per_mtok` | | unset | Price per million input tokens |
-| `price_out_per_mtok` | | unset | Price per million output tokens |
-| `price_currency` | | `""` | Label shown before the estimate, e.g. `€` |
+| Setting | Where | Default |
+|---------|-------|---------|
+| API endpoint | `api_url`, `-api-url`, or env `POLY_API_URL` (`OPENAI_BASE_URL`) | none, required |
+| API key | env `POLY_API_KEY` (`OPENAI_API_KEY`), or `api_key` | none, required |
+| Languages | `languages`, `-languages` | `fr`, `en` |
+| Models | `stt_model`, `translate_model` | `whisper-large-v3`, `mistral-small-3.2-24b-instruct-2506` |
+| Microphone | `mic`, `-mic` | system default; `off` for typed input only |
+| Live preview | `live_preview`, `-live-preview` | `true` |
 
-`base_url` has no default, so your key is never sent to a provider you did
-not choose. Keep the key in `OPENAI_API_KEY` rather than in a file, and never
-commit a config that contains one.
+The endpoint has no default, so your key only ever goes to a provider you
+chose, and it must use `https`. Keep the key in the environment and never
+commit a file that contains one.
+
+Everything else (voice detection, end of turn, noise filters, prices) is
+listed with its default and meaning in
+[`config.example.toml`](config.example.toml).
 
 ### Live preview and cost
 
@@ -172,7 +167,7 @@ mic ─▶ Silero VAD ─▶ Smart Turn ─▶ Whisper ─▶ language check ─
   never contains conversation text or your API key.
 - `./config.toml` is never loaded automatically, so a file in some directory
   cannot redirect your key to another server.
-- `base_url` must use `https` (except for localhost).
+- The API endpoint must use `https` (except for localhost).
 
 ## Evaluation
 
@@ -182,7 +177,7 @@ reports language-pick accuracy and noise rejection against your API.
 ```sh
 go build -o poly-eval ./cmd/poly-eval
 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 10 eval/clips   # needs curl, ffmpeg, python3
-OPENAI_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json
+POLY_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json
 ```
 
 With `whisper-large-v3`, poly picked the right language for 20/20 clips on

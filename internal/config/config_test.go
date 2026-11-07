@@ -17,8 +17,8 @@ func noEnv(string) string { return "" }
 
 const testURL = "https://api.scaleway.ai/p/v1"
 
-// withURL prepends -base-url (required) so Load can succeed.
-func withURL(args ...string) []string { return append([]string{"-base-url", testURL}, args...) }
+// withURL prepends -api-url (required) so Load can succeed.
+func withURL(args ...string) []string { return append([]string{"-api-url", testURL}, args...) }
 
 func inTempDir(t *testing.T) string {
 	t.Helper()
@@ -33,11 +33,11 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.BaseURL != testURL || Defaults().BaseURL != "" {
-		t.Fatalf("base_url must have no default: %q", Defaults().BaseURL)
+	if c.APIURL != testURL || Defaults().APIURL != "" {
+		t.Fatalf("api_url must have no default: %q", Defaults().APIURL)
 	}
-	if c.Languages != [2]string{"fr", "en"} || c.TranslateContext != 4 || c.SileroThreshold != 0.6 ||
-		c.VADMinSpeechMS != 250 || c.TrimMarginMS != 150 || !c.SmartTurn || c.Denoise || c.Timestamps ||
+	if c.Languages != [2]string{"fr", "en"} || c.TranslateContext != 4 || c.VADThreshold != 0.6 ||
+		c.VADMinSpeechMS != 250 || c.VADTrimMarginMS != 150 || !c.SmartTurn || c.Denoise || c.Timestamps ||
 		c.TranslateModel != "mistral-small-3.2-24b-instruct-2506" || c.STTModel != "whisper-large-v3" {
 		t.Fatalf("bad defaults: %+v", c)
 	}
@@ -84,10 +84,10 @@ func TestUserConfigPickedUp(t *testing.T) {
 
 func TestCwdConfigNotLoadedImplicitly(t *testing.T) {
 	inTempDir(t)
-	os.WriteFile("config.toml", []byte("translate_context = 9\nbase_url = \"https://evil.example\"\n"), 0o600)
-	// Ignored: base_url stays unset (the file would have set it).
+	os.WriteFile("config.toml", []byte("translate_context = 9\napi_url = \"https://evil.example\"\n"), 0o600)
+	// Ignored: api_url stays unset (the file would have set it).
 	_, err := Load(nil, noEnv)
-	if err == nil || !strings.Contains(err.Error(), "base_url: required") {
+	if err == nil || !strings.Contains(err.Error(), "api_url: required") {
 		t.Fatalf("cwd config.toml must be ignored: %v", err)
 	}
 	c, err := Load(withURL(), noEnv)
@@ -95,7 +95,7 @@ func TestCwdConfigNotLoadedImplicitly(t *testing.T) {
 		t.Fatalf("cwd config.toml must be ignored: %+v %v", c, err)
 	}
 	c, err = Load([]string{"-config", "config.toml"}, noEnv)
-	if err != nil || c.TranslateContext != 9 || c.BaseURL != "https://evil.example" {
+	if err != nil || c.TranslateContext != 9 || c.APIURL != "https://evil.example" {
 		t.Fatalf("explicit -config must load: %v %v", c.TranslateContext, err)
 	}
 }
@@ -108,7 +108,7 @@ func TestBaseURLValidation(t *testing.T) {
 		"http://example.com/v1": false, "ftp://localhost/": false,
 		"://bad": false, "%zz": false, "https://": false,
 	} {
-		_, err := Load([]string{"-base-url", u}, envMap(map[string]string{"OPENAI_API_KEY": "sekret"}))
+		_, err := Load([]string{"-api-url", u}, envMap(map[string]string{"OPENAI_API_KEY": "sekret"}))
 		if (err == nil) != ok {
 			t.Errorf("%q: err = %v, want ok=%v", u, err, ok)
 		}
@@ -121,14 +121,14 @@ func TestBaseURLValidation(t *testing.T) {
 func TestRejectsNaN(t *testing.T) {
 	inTempDir(t)
 	for _, args := range [][]string{
-		{"-silero-vad-threshold", "NaN"}, {"-vad-min-speech-ms", "NaN"}, {"-vad-silence-ms", "NaN"},
+		{"-vad-threshold", "NaN"}, {"-vad-min-speech-ms", "NaN"}, {"-vad-end-silence-ms", "NaN"},
 	} {
 		if _, err := Load(withURL(args...), noEnv); err == nil {
 			t.Errorf("%v: expected error", args)
 		}
 	}
 	c := Defaults()
-	c.BaseURL = testURL
+	c.APIURL = testURL
 	c.SmartTurnThreshold = math.NaN()
 	if c.Validate() == nil {
 		t.Error("NaN smart_turn_threshold accepted")
@@ -137,15 +137,15 @@ func TestRejectsNaN(t *testing.T) {
 
 func TestNoiseThresholdsMustBeFinite(t *testing.T) {
 	ok := Defaults()
-	ok.BaseURL = testURL
+	ok.APIURL = testURL
 	if err := ok.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		c := ok
-		c.NoiseLogprobFloor = v
-		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "noise_logprob_floor") {
-			t.Errorf("noise_logprob_floor=%g: err = %v", v, err)
+		c.NoiseMinLogprob = v
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "noise_min_logprob") {
+			t.Errorf("noise_min_logprob=%g: err = %v", v, err)
 		}
 		c = ok
 		c.NoiseMaxCompression = v
@@ -156,17 +156,62 @@ func TestNoiseThresholdsMustBeFinite(t *testing.T) {
 	// Also through the TOML file (TOML has nan/inf literals).
 	d := inTempDir(t)
 	p := filepath.Join(d, "c.toml")
-	os.WriteFile(p, []byte("noise_logprob_floor = nan\n"), 0o600)
+	os.WriteFile(p, []byte("noise_min_logprob = nan\n"), 0o600)
 	if _, err := Load(withURL("-config", p), noEnv); err == nil {
 		t.Error("nan in file accepted")
 	}
 }
 
-func TestBaseURLRequired(t *testing.T) {
+func TestAPIURLRequired(t *testing.T) {
 	inTempDir(t)
 	_, err := Load(nil, envMap(map[string]string{"OPENAI_API_KEY": "sekret"}))
-	if err == nil || err.Error() != "base_url: required (e.g. https://api.scaleway.ai/<project_id>/v1)" {
+	if err == nil || !strings.HasPrefix(err.Error(), "api_url: required") || strings.Contains(err.Error(), "sekret") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAPIEnvPrecedence(t *testing.T) {
+	inTempDir(t)
+	both := map[string]string{
+		"POLY_API_KEY": "poly-key", "OPENAI_API_KEY": "openai-key",
+		"POLY_API_URL": "https://poly.example/v1", "OPENAI_BASE_URL": "https://openai.example/v1",
+	}
+	c, err := Load(nil, envMap(both))
+	if err != nil || c.APIKey != "poly-key" || c.APIURL != "https://poly.example/v1" {
+		t.Fatalf("POLY_* must win: key %q url %q err %v", c.APIKey, c.APIURL, err)
+	}
+	c, err = Load(nil, envMap(map[string]string{"OPENAI_API_KEY": "openai-key", "OPENAI_BASE_URL": "https://openai.example/v1"}))
+	if err != nil || c.APIKey != "openai-key" || c.APIURL != "https://openai.example/v1" {
+		t.Fatalf("OPENAI_* fallback: key %q url %q err %v", c.APIKey, c.APIURL, err)
+	}
+	c, err = Load([]string{"-api-url", testURL}, envMap(both))
+	if err != nil || c.APIURL != testURL {
+		t.Fatalf("flag must win over env: %q %v", c.APIURL, err)
+	}
+	d := t.TempDir()
+	p := filepath.Join(d, "c.toml")
+	os.WriteFile(p, []byte("api_url = \"https://file.example/v1\"\n"), 0o600)
+	c, err = Load([]string{"-config", p}, envMap(both))
+	if err != nil || c.APIURL != "https://file.example/v1" {
+		t.Fatalf("file must win over env: %q %v", c.APIURL, err)
+	}
+	if _, err := Load(nil, envMap(map[string]string{"POLY_API_URL": "http://evil.example/v1"})); err == nil {
+		t.Fatal("plain http from env accepted")
+	}
+}
+
+func TestLanguagesFlagAndAlias(t *testing.T) {
+	inTempDir(t)
+	for _, f := range []string{"-languages", "-langs"} {
+		c, err := Load(withURL(f, "es,ja"), noEnv)
+		if err != nil || c.Languages != [2]string{"es", "ja"} {
+			t.Fatalf("%s: %v %v", f, c.Languages, err)
+		}
+	}
+	_, err := Load(withURL("-languages", "es,ja", "-langs", "fr,en"), noEnv)
+	var ue *UsageError
+	if !errors.As(err, &ue) {
+		t.Fatalf("both flags: err = %v, want *UsageError", err)
 	}
 }
 
@@ -188,7 +233,7 @@ func TestHelpAndUsage(t *testing.T) {
 	var b bytes.Buffer
 	Usage(&b)
 	out := b.String()
-	for _, want := range []string{"-langs", "-base-url", "-config", "-mic", "-log-file", "(default 0.6)", "~/.config/poly/config.toml"} {
+	for _, want := range []string{"-languages", "-langs", "-api-url", "-config", "-mic", "-log-file", "(default 0.6)", "~/.config/poly/config.toml"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("usage missing %q:\n%s", want, out)
 		}
@@ -233,7 +278,7 @@ func TestRejectsBadNumbers(t *testing.T) {
 	inTempDir(t)
 	for _, args := range [][]string{
 		{"-translate-context", "-1"},
-		{"-silero-vad-threshold", "1.5"},
+		{"-vad-threshold", "1.5"},
 	} {
 		if _, err := Load(withURL(args...), noEnv); err == nil {
 			t.Errorf("%v: expected error", args)
@@ -261,8 +306,8 @@ func TestLanguageNames(t *testing.T) {
 
 func TestLivePreviewDefaultsOn(t *testing.T) {
 	d := Defaults()
-	if !d.LivePreview || d.PreviewIntervalMS != 1000 {
-		t.Fatalf("LivePreview=%v PreviewIntervalMS=%v", d.LivePreview, d.PreviewIntervalMS)
+	if !d.LivePreview || d.LivePreviewIntervalMS != 1000 {
+		t.Fatalf("LivePreview=%v LivePreviewIntervalMS=%v", d.LivePreview, d.LivePreviewIntervalMS)
 	}
 	if d.PriceAudioPerMin != nil || d.PriceInPerMTok != nil || d.PriceOutPerMTok != nil || d.Prices() != nil {
 		t.Fatal("prices must have no defaults")
@@ -271,11 +316,11 @@ func TestLivePreviewDefaultsOn(t *testing.T) {
 
 func TestLivePreviewFlag(t *testing.T) {
 	inTempDir(t)
-	c, err := Load([]string{"-live-preview=false", "-base-url", "https://x"}, noEnv)
+	c, err := Load([]string{"-live-preview=false", "-api-url", "https://x"}, noEnv)
 	if err != nil || c.LivePreview {
 		t.Fatalf("-live-preview=false: LivePreview=%v err=%v", c.LivePreview, err)
 	}
-	c, err = Load([]string{"-live-preview", "-base-url", "https://x"}, noEnv)
+	c, err = Load([]string{"-live-preview", "-api-url", "https://x"}, noEnv)
 	if err != nil || !c.LivePreview {
 		t.Fatalf("-live-preview: LivePreview=%v err=%v", c.LivePreview, err)
 	}
@@ -316,11 +361,11 @@ func TestPricesFromFile(t *testing.T) {
 }
 
 func TestValidatePreviewAndPrices(t *testing.T) {
-	base := func() Config { c := Defaults(); c.BaseURL = testURL; return c }
+	base := func() Config { c := Defaults(); c.APIURL = testURL; return c }
 	f := func(v float64) *float64 { return &v }
 	c := base()
-	c.PreviewIntervalMS = 50
-	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "preview_interval_ms") {
+	c.LivePreviewIntervalMS = 50
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "live_preview_interval_ms") {
 		t.Errorf("interval 50: %v", err)
 	}
 	for name, set := range map[string]func(*Config, *float64){

@@ -136,7 +136,7 @@ translates.
    **Noise handling** (decided with the user: stop noise before Whisper
    rather than filter Whisper's output afterwards):
    - **Silero VAD only, no energy detector.** Speech threshold configurable
-     (`silero_vad_threshold`, default 0.6, slightly stricter than talktome's
+     (`vad_threshold`, default 0.6, slightly stricter than talktome's
      0.5 to reject non-voice noise). Minimum speech duration configurable
      (`vad_min_speech_ms`, default 250 ms, low enough to keep "oui"/"yes").
    - **Trim before sending:** use Silero's per-frame speech decisions to cut
@@ -230,15 +230,16 @@ mic keeps listening.
 
 talktome style: `config.toml` + command-line flags that override it.
 
-- `languages = ["fr", "en"]` / `-langs fr,en` (ISO-639-1; exactly two,
+- `languages = ["fr", "en"]` / `-languages fr,en` (alias `-langs`; ISO-639-1; exactly two,
   distinct; must be Whisper-supported)
-- endpoint base URL, API key (env `OPENAI_API_KEY` like talktome, or config)
+- endpoint `api_url` (env `POLY_API_URL`, then `OPENAI_BASE_URL`), API key
+  (env `POLY_API_KEY`, then `OPENAI_API_KEY`, or `api_key` in the config)
 - `stt_model` (default `whisper-large-v3`), `translate_model` (default
   `mistral-small-3.2-24b-instruct-2506`)
 - `timestamps = false` / `-timestamps`
-- `silero_vad_threshold` (0.6), `vad_min_speech_ms` (250), `denoise` (false),
+- `vad_threshold` (0.6), `vad_min_speech_ms` (250), `denoise` (false),
   `denoise_model` path
-- VAD/Silero/Smart Turn keys with talktome's names and defaults (model paths,
+- VAD/Silero/Smart Turn keys (listed in `config.example.toml`; model paths,
   thresholds, silence ms, min speech ms, device selection). Unlike talktome,
   **Silero and Smart Turn are on by default**. If a model file is missing,
   fall back with a warning, as talktome does. Models exist at

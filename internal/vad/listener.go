@@ -207,7 +207,7 @@ type Listener struct {
 	// rolling pre-buffer never counts, a turn-judge hold's quiet chunks
 	// don't, and its resumed speech does, being the same utterance). This
 	// is not a real speech-duration measure: a detector stays speaking
-	// through its whole end-of-utterance silence wait (-vad-silence-ms), so
+	// through its whole end-of-utterance silence wait (-vad-end-silence-ms), so
 	// that trailing silence counts too, and with SustainedSpeechMS below
 	// the detector's silence wait the hook fires for any confirmed onset
 	// (a cough that passed onset debounce, say) followed by enough

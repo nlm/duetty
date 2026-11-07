@@ -101,7 +101,7 @@ type VAD struct {
 // "cpu" are equivalent and the default). threshold is the speech
 // probability an audio window must reach to count as speech (the exit
 // threshold is threshold-0.15, see silenceHysteresis); silenceMS/onsetMS
-// mirror the energy VAD's -vad-silence-ms/-vad-onset-ms debounce windows.
+// mirror the energy VAD's -vad-end-silence-ms/-vad-onset-ms debounce windows.
 // sampleRateIn is the input PCM sample rate Feed will be called with (e.g.
 // internal/audioio.SampleRate) -- audioutil.ResampleTo16kHz only actually
 // supports 16000 or 48000.

@@ -11,13 +11,13 @@ stdout only; nothing is stored. Audio is never committed (`eval/clips/`,
 go build -o poly-eval ./cmd/poly-eval          # models/ and third_party/ next to the binary
 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 10 eval/clips
 WORD_MIN=1 WORD_MAX=2 scripts/fetch-tatoeba-clips.sh fr,en,es,ja 12 eval/words
-OPENAI_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json \
+POLY_API_KEY=... ./poly-eval -config my.toml -clips eval/clips/meta.json \
     -words eval/words/meta.json -noise eval/noise -detail
 ```
 
 `-floor` / `-maxcomp` override the noise thresholds; `-detail` prints each
 Whisper pass's avg_logprob and compression ratio for words and noise;
-`silero_vad_threshold` / `vad_min_speech_ms` come from the config file.
+`vad_threshold` / `vad_min_speech_ms` come from the config file.
 Tatoeba audio licenses vary per recording (mostly CC BY 2.0 FR / CC BY-NC-ND), so only
 the fetch script is in the repo.
 
@@ -59,7 +59,7 @@ Results with the shipped defaults (silero 0.6, min speech 250 ms, logprob floor 
 | noise reaching Whisper -> ErrNoise / row | 0 / 0 |
 
 Silero alone removes every noise clip, so the Whisper-level thresholds were
-stress-tested with Silero loosened (`silero_vad_threshold = 0.05`,
+stress-tested with Silero loosened (`vad_threshold = 0.05`,
 `vad_min_speech_ms = 0`), which lets 10 of 25 clips through (fr-en pair):
 
 | clip | avg_logprob | compression | Whisper text | verdict at -1.0 |
@@ -77,7 +77,7 @@ ratio is 0.4-0.6 for words and for every noise survivor, so it does not
 separate them at all (it only catches repetition loops, which none of these
 produced).
 
-Conclusion: the defaults (`noise_logprob_floor = -1.0`, `noise_max_compression = 2.4`)
+Conclusion: the defaults (`noise_min_logprob = -1.0`, `noise_max_compression = 2.4`)
 are kept. Moving the floor to -0.85 would only gain the "you" hum clip at a
 cost of the one bad real word clip; the coughs ("*cough*", -0.62..-0.81) overlap the
 range of real words, so no logprob threshold can drop them without dropping
