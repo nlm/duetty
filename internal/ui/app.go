@@ -39,6 +39,7 @@ type App struct {
 	inFlight int
 	muted    bool
 	notice   string
+	usage    string
 
 	redraw   chan struct{}
 	done     chan struct{} // closed when Run returns; stops the pump
@@ -314,7 +315,7 @@ func (a *App) clampedOffset() int {
 
 func (a *App) updateStatusText() {
 	a.mu.Lock()
-	level, state, n, muted, notice := a.level, a.state, a.inFlight, a.muted, a.notice
+	level, state, n, muted, notice, usage := a.level, a.state, a.inFlight, a.muted, a.notice, a.usage
 	a.mu.Unlock()
 	if muted {
 		state = "muted"
@@ -336,6 +337,9 @@ func (a *App) updateStatusText() {
 		fmt.Fprintf(&sb, " · [yellow]%s[-]", tview.Escape(notice))
 	}
 	fmt.Fprintf(&sb, " · %s ⇄ %s · %s", tview.Escape(a.pair[0]), tview.Escape(a.pair[1]), tview.Escape(a.model))
+	if usage != "" {
+		fmt.Fprintf(&sb, " · %s", tview.Escape(usage))
+	}
 	a.status.SetText(sb.String())
 }
 
@@ -368,6 +372,15 @@ func (a *App) SetStatus(level float64, state string, inFlight int, muted bool) {
 func (a *App) SetNotice(notice string) {
 	a.mu.Lock()
 	a.notice = notice
+	a.mu.Unlock()
+	a.signal()
+}
+
+// SetUsage shows a usage/cost summary at the end of the status bar; "" hides
+// it. Safe from any goroutine; never blocks.
+func (a *App) SetUsage(text string) {
+	a.mu.Lock()
+	a.usage = text
 	a.mu.Unlock()
 	a.signal()
 }

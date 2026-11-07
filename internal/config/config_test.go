@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nlm/poly/internal/usage"
 )
 
 func noEnv(string) string { return "" }
@@ -254,5 +256,89 @@ func TestLanguageNames(t *testing.T) {
 	}
 	if !WhisperSupported("yue") || WhisperSupported("xx") {
 		t.Error("WhisperSupported wrong")
+	}
+}
+
+func TestLivePreviewDefaultsOn(t *testing.T) {
+	d := Defaults()
+	if !d.LivePreview || d.PreviewIntervalMS != 1000 {
+		t.Fatalf("LivePreview=%v PreviewIntervalMS=%v", d.LivePreview, d.PreviewIntervalMS)
+	}
+	if d.PriceAudioPerMin != nil || d.PriceInPerMTok != nil || d.PriceOutPerMTok != nil || d.Prices() != nil {
+		t.Fatal("prices must have no defaults")
+	}
+}
+
+func TestLivePreviewFlag(t *testing.T) {
+	inTempDir(t)
+	c, err := Load([]string{"-live-preview=false", "-base-url", "https://x"}, noEnv)
+	if err != nil || c.LivePreview {
+		t.Fatalf("-live-preview=false: LivePreview=%v err=%v", c.LivePreview, err)
+	}
+	c, err = Load([]string{"-live-preview", "-base-url", "https://x"}, noEnv)
+	if err != nil || !c.LivePreview {
+		t.Fatalf("-live-preview: LivePreview=%v err=%v", c.LivePreview, err)
+	}
+}
+
+func TestLivePreviewOffInFile(t *testing.T) {
+	d := inTempDir(t)
+	p := filepath.Join(d, "c.toml")
+	os.WriteFile(p, []byte("live_preview = false\n"), 0o600)
+	c, err := Load(withURL("-config", p), noEnv)
+	if err != nil || c.LivePreview {
+		t.Fatalf("live_preview = false: LivePreview=%v err=%v", c.LivePreview, err)
+	}
+	// The flag overrides the file.
+	c, err = Load(withURL("-config", p, "-live-preview"), noEnv)
+	if err != nil || !c.LivePreview {
+		t.Fatalf("file off, flag on: LivePreview=%v err=%v", c.LivePreview, err)
+	}
+}
+
+func TestPricesFromFile(t *testing.T) {
+	d := inTempDir(t)
+	p := filepath.Join(d, "c.toml")
+	os.WriteFile(p, []byte("price_audio_per_min = 0.003\nprice_in_per_mtok = 0.15\nprice_out_per_mtok = 0.35\nprice_currency = \"€\"\n"), 0o600)
+	c, err := Load(withURL("-config", p), noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &usage.Prices{AudioPerMin: 0.003, InPerMTok: 0.15, OutPerMTok: 0.35, Currency: "€"}
+	if got := c.Prices(); got == nil || *got != *want {
+		t.Fatalf("Prices() = %+v, want %+v", got, want)
+	}
+	os.WriteFile(p, []byte("price_audio_per_min = 0.003\nprice_in_per_mtok = 0.15\n"), 0o600)
+	c, err = Load(withURL("-config", p), noEnv)
+	if err != nil || c.Prices() != nil {
+		t.Fatalf("partial prices: %+v %v", c.Prices(), err)
+	}
+}
+
+func TestValidatePreviewAndPrices(t *testing.T) {
+	base := func() Config { c := Defaults(); c.BaseURL = testURL; return c }
+	f := func(v float64) *float64 { return &v }
+	c := base()
+	c.PreviewIntervalMS = 50
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "preview_interval_ms") {
+		t.Errorf("interval 50: %v", err)
+	}
+	for name, set := range map[string]func(*Config, *float64){
+		"price_audio_per_min": func(c *Config, v *float64) { c.PriceAudioPerMin = v },
+		"price_in_per_mtok":   func(c *Config, v *float64) { c.PriceInPerMTok = v },
+		"price_out_per_mtok":  func(c *Config, v *float64) { c.PriceOutPerMTok = v },
+	} {
+		for _, bad := range []float64{-1, math.NaN(), math.Inf(1)} {
+			c := base()
+			set(&c, f(bad))
+			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), name) {
+				t.Errorf("%s=%v: %v", name, bad, err)
+			}
+		}
+		c := base()
+		set(&c, f(0))
+		if err := c.Validate(); err != nil {
+			t.Errorf("%s=0 rejected: %v", name, err)
+		}
 	}
 }

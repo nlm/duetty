@@ -113,10 +113,11 @@ type Listener struct {
 	// utterance has accumulated so far (starting at silenceMS, the pause
 	// the detector already waited out before reporting ended), and
 	// nextCheckMS is the quietMS at which the judge is asked again.
-	// holdGen is bumped every time SetMuted ends a hold, so a judgment Run
-	// computed outside mu for a hold that a concurrent mute has since
-	// finalized or discarded is recognized as stale and dropped instead of
-	// delivering (or re-holding) an utterance that no longer exists. All
+	// holdGen is bumped every time SetMuted or DropCurrent ends a hold, so
+	// a judgment Run computed outside mu for a hold that a concurrent mute
+	// or drop has since finalized or discarded is recognized as stale and
+	// dropped instead of delivering (or re-holding) an utterance that no
+	// longer exists. All
 	// guarded by mu. judgeWarn makes a failing judge warn once per
 	// Listener rather than once per utterance -- a broken model fails the
 	// same way every time, and the fail-open delivery already keeps the
@@ -154,6 +155,20 @@ type Listener struct {
 	// is no window in which an ended utterance exists but DropPendingDelivery
 	// can't see it. Guarded by mu.
 	pending *pendingDelivery
+
+	// abortQueued is a discard's OnSpeechAbort (DropCurrent, a discarding
+	// SetMuted) left for Run to fire when OnAudio is set; abortSignal is a
+	// capacity-1 wake-up hint for it, like flushSignal. Firing every such
+	// abort on Run's goroutine -- the one that also calls OnSpeechStart and
+	// OnAudio -- is what orders it after the discarded utterance's last
+	// OnAudio call and before the next utterance's OnSpeechStart and
+	// OnAudio(start), which an abort fired from the discarding caller's
+	// goroutine after unlocking can't guarantee. Run takes a queued abort
+	// in the same mu hold where it decides on a chunk and fires it before
+	// that chunk's hooks, again after OnAudio returns, and on abortSignal.
+	// abortQueued is guarded by mu.
+	abortQueued bool
+	abortSignal chan struct{}
 
 	// lastSpeech is when Run last handled a chunk belonging to an
 	// utterance (speaking, onset, or held for the turn judge) -- see
@@ -211,13 +226,29 @@ type Listener struct {
 	// discarded without being delivered: SetMuted(true, ...) while
 	// speaking (or while a paused utterance is held for the turn judge)
 	// that doesn't finalize it, or an ended one dropped for holding too
-	// little speech (SetMinSpeechMS). A delivered utterance (ended
-	// naturally, or finalized by a user mute) calls neither hook -- the
-	// turn path takes over from there. Called outside l.mu: from SetMuted's
-	// caller's goroutine, possibly while that caller holds its own locks
-	// (see OnMuteChange's doc comment for the same caveat), or from Run's
-	// for a too-short drop.
+	// little speech (SetMinSpeechMS), or DropCurrent. A delivered utterance
+	// (ended naturally, or finalized by a user mute) calls neither hook --
+	// the turn path takes over from there. Called outside l.mu: from
+	// SetMuted's or DropCurrent's caller's goroutine, possibly while that
+	// caller holds its own locks (see OnMuteChange's doc comment for the
+	// same caveat), or from Run's for a too-short drop. With OnAudio set,
+	// a discard's abort is always fired from Run's goroutine instead,
+	// shortly after the discard (see abortQueued), so it falls between the
+	// discarded utterance's last OnAudio call and the next utterance's
+	// OnSpeechStart.
 	OnSpeechAbort func()
+
+	// OnAudio, if set, is called for every byte range appended to the
+	// utterance being captured, in order: start is true on an utterance's
+	// first call (data is the pre-buffer plus the onset chunk), false for
+	// each later chunk, a turn-judge hold's included. The concatenation of
+	// the calls from one start up to the next equals exactly the utterance
+	// delivered on Utterances(), or the discarded one (signalled by
+	// OnSpeechAbort, which always comes after that utterance's last call).
+	// Each call precedes its chunk's delivery. Called from Run's goroutine
+	// outside l.mu, so it may call back into this Listener; it must not
+	// retain data. Never called while muted. Set before calling Run.
+	OnAudio func(data []byte, start bool)
 
 	// OnMuteChange, if set, is called from every SetMuted call (not just
 	// ones a user explicitly requested) with the new state -- SetMuted also
@@ -246,6 +277,7 @@ func NewListener(chunks <-chan []byte, v VoiceDetector, preBufMS float64) *Liste
 		vad:         v,
 		utterances:  make(chan []byte),
 		flushSignal: make(chan struct{}, 1),
+		abortSignal: make(chan struct{}, 1),
 		preBufMS:    preBufMS,
 	}
 }
@@ -411,7 +443,7 @@ func (l *Listener) SetMuted(muted bool, finalizeIfSpeaking bool) {
 			// whole listener has already begun shutting down.
 			l.pendingFlush = append(l.pendingFlush, l.buf)
 		} else {
-			aborted = true
+			aborted = l.abortNowLocked()
 		}
 		l.vad.Reset()
 		if l.holding {
@@ -441,6 +473,79 @@ func (l *Listener) SetMuted(muted bool, finalizeIfSpeaking bool) {
 	if l.OnMuteChange != nil {
 		l.OnMuteChange(muted)
 	}
+}
+
+// DropCurrent discards the utterance being captured, or held open for the
+// turn judge, without delivering it -- the user asked to throw away what
+// they're saying. The detector is reset (speech that carries on needs a
+// fresh onset and becomes a new utterance), a judgment in flight for the
+// hold is made stale, and OnSpeechAbort fires. Returns false, doing
+// nothing, when no utterance is in progress (an ended one already on its
+// way to a receiver is DropPendingDelivery's). Listening continues. Safe
+// from any goroutine; OnSpeechAbort is called outside l.mu, from this
+// caller's goroutine -- or, with OnAudio set, from Run's shortly after this
+// returns (after any in-progress OnAudio call or turn judgment), so it is
+// ordered against the audio hooks (see abortQueued).
+func (l *Listener) DropCurrent() bool {
+	l.mu.Lock()
+	if !l.vad.Speaking() && !l.holding {
+		l.mu.Unlock()
+		return false
+	}
+	l.vad.Reset()
+	l.holding = false
+	l.holdGen++
+	l.buf = nil
+	l.preBuf = nil
+	l.preVoiced = nil
+	l.voicedMS = 0
+	fire := l.abortNowLocked()
+	l.mu.Unlock()
+
+	log.Listen("utterance dropped (cancelled)")
+	if fire && l.OnSpeechAbort != nil {
+		l.OnSpeechAbort()
+	}
+	return true
+}
+
+// abortNowLocked reports whether a discard's OnSpeechAbort should fire
+// right away from the discarding caller, or -- with OnAudio set -- queues
+// it for Run and wakes Run up (see abortQueued). Caller holds mu.
+func (l *Listener) abortNowLocked() bool {
+	if l.OnAudio == nil {
+		return true
+	}
+	l.abortQueued = true
+	select {
+	case l.abortSignal <- struct{}{}:
+	default: // a wake-up is already pending
+	}
+	return false
+}
+
+// takeAbortLocked returns and clears a queued abort. Caller holds mu.
+func (l *Listener) takeAbortLocked() bool {
+	q := l.abortQueued
+	l.abortQueued = false
+	return q
+}
+
+// fireAbort calls OnSpeechAbort when queued. Only called from Run's
+// goroutine, outside mu.
+func (l *Listener) fireAbort(queued bool) {
+	if queued && l.OnSpeechAbort != nil {
+		l.OnSpeechAbort()
+	}
+}
+
+// fireQueuedAbort fires an abort queued by a discard, if any. Only called
+// from Run's goroutine.
+func (l *Listener) fireQueuedAbort() {
+	l.mu.Lock()
+	queued := l.takeAbortLocked()
+	l.mu.Unlock()
+	l.fireAbort(queued)
 }
 
 // IsMuted reports whether the listener is currently muted (see SetMuted).
@@ -680,9 +785,12 @@ func (l *Listener) Run() {
 		select {
 		case chunk, ok := <-l.chunks:
 			if !ok {
+				l.fireQueuedAbort()
 				return
 			}
 			l.handleChunk(chunk, preBufMaxBytes)
+		case <-l.abortSignal:
+			l.fireQueuedAbort()
 		case <-l.flushSignal:
 			l.drainPendingFlushes()
 		}
@@ -694,8 +802,12 @@ func (l *Listener) Run() {
 // from Run's goroutine.
 func (l *Listener) handleChunk(chunk []byte, preBufMaxBytes int) {
 	l.mu.Lock()
+	// An abort queued before this chunk belongs to an earlier utterance:
+	// fire it before any hook this chunk triggers (see abortQueued).
+	queued := l.takeAbortLocked()
 	if l.muted {
 		l.mu.Unlock()
+		l.fireAbort(queued)
 		return
 	}
 
@@ -727,13 +839,16 @@ func (l *Listener) handleChunk(chunk []byte, preBufMaxBytes int) {
 			}
 		}
 		l.mu.Unlock()
+		l.fireAbort(queued)
 		return
 	}
 
 	l.lastSpeech = time.Now()
 	newUtterance := started && !wasHolding
+	audio := chunk // what this chunk appends to the utterance (see OnAudio)
 	if newUtterance {
 		l.buf = append(append([]byte{}, l.preBuf...), chunk...)
+		audio = l.buf
 		l.preBuf = nil
 		l.voicedMS = voiced
 		for _, c := range l.preVoiced {
@@ -805,8 +920,13 @@ func (l *Listener) handleChunk(chunk []byte, preBufMaxBytes int) {
 	}
 	l.mu.Unlock()
 
+	l.fireAbort(queued)
 	if newUtterance && l.OnSpeechStart != nil {
 		l.OnSpeechStart()
+	}
+	if l.OnAudio != nil {
+		l.OnAudio(audio, newUtterance)
+		l.fireQueuedAbort() // a discard of this utterance during the call
 	}
 	if sustained {
 		l.OnSustainedSpeech()

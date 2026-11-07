@@ -58,7 +58,7 @@ func newR(t Transcriber, d TextDetector) *Resolver {
 func TestAutoInPair(t *testing.T) {
 	f := &fakeT{res: map[string]Result{"": {Text: "Bonjour.", Language: "fr", AvgLogprob: -0.2}}}
 	got, err := newR(f, det(nil)).Resolve(context.Background(), nil)
-	if err != nil || got != (Resolved{"fr", "Bonjour."}) || len(f.calls) != 1 {
+	if err != nil || got.Lang != "fr" || got.Text != "Bonjour." || len(f.calls) != 1 {
 		t.Fatalf("got %v %v calls=%v", got, err, f.calls)
 	}
 }
@@ -126,7 +126,7 @@ func TestAutoOutsidePairUsesForcedEcho(t *testing.T) {
 		"fr": {Text: frText, Language: "fr", AvgLogprob: -0.4},
 	}}
 	got, err := newR(f, det(map[string]string{frText: "fr"})).Resolve(context.Background(), nil)
-	if err != nil || got != (Resolved{"fr", frText}) {
+	if err != nil || got.Lang != "fr" || got.Text != frText {
 		t.Fatalf("got %v %v", got, err)
 	}
 }
@@ -140,7 +140,7 @@ func TestOutsidePairEchoOtherPassFailed(t *testing.T) {
 		errs: map[string]error{"fr": errors.New("boom")},
 	}
 	got, err := newR(f, det(map[string]string{frText: "fr"})).Resolve(context.Background(), nil)
-	if err != nil || got != (Resolved{"fr", frText}) {
+	if err != nil || got.Lang != "fr" || got.Text != frText {
 		t.Fatalf("got %v %v", got, err)
 	}
 }
@@ -164,7 +164,7 @@ func TestAutoOutsidePairLogprobTieBreak(t *testing.T) {
 		"en": {Text: "ddd eee fff", AvgLogprob: -0.3},
 	}}
 	got, err := newR(f, det(nil)).Resolve(context.Background(), nil)
-	if err != nil || got != (Resolved{"en", "ddd eee fff"}) {
+	if err != nil || got.Lang != "en" || got.Text != "ddd eee fff" {
 		t.Fatalf("got %v %v", got, err)
 	}
 }
@@ -199,7 +199,7 @@ func TestOneForcedPassFails(t *testing.T) {
 		errs: map[string]error{"fr": errors.New("boom")},
 	}
 	got, err := newR(f, det(nil)).Resolve(context.Background(), nil)
-	if err != nil || got != (Resolved{"en", "hello there friend"}) {
+	if err != nil || got.Lang != "en" || got.Text != "hello there friend" {
 		t.Fatalf("got %v %v", got, err)
 	}
 }
@@ -271,5 +271,32 @@ func TestOutsidePairNoiseSkipsForcedPasses(t *testing.T) {
 		if !errors.Is(err, ErrNoise) || len(f.calls) != 1 {
 			t.Errorf("%s: err=%v calls=%v, want ErrNoise after 1 call", name, err, f.calls)
 		}
+	}
+}
+
+func TestResolveLockedSinglePass(t *testing.T) {
+	segs := []Segment{{0, 1, "Bonjour."}}
+	f := &fakeT{res: map[string]Result{"fr": {Text: "Bonjour.", Language: "fr", AvgLogprob: -0.2, Segments: segs}}}
+	got, err := newR(f, det(nil)).ResolveLocked(context.Background(), nil, "fr")
+	if err != nil || got.Lang != "fr" || got.Text != "Bonjour." || len(got.Segments) != 1 || got.Segments[0] != segs[0] {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	if len(f.calls) != 1 || f.calls[0] != "fr" {
+		t.Fatalf("calls=%v", f.calls)
+	}
+}
+
+func TestResolveLockedNoise(t *testing.T) {
+	f := &fakeT{res: map[string]Result{"fr": {Text: "blah", AvgLogprob: -2}}}
+	if _, err := newR(f, det(nil)).ResolveLocked(context.Background(), nil, "fr"); !errors.Is(err, ErrNoise) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestResolveLockedEmptyLangIsResolve(t *testing.T) {
+	f := &fakeT{res: map[string]Result{"": {Text: "Bonjour.", Language: "fr", AvgLogprob: -0.2}}}
+	got, err := newR(f, det(nil)).ResolveLocked(context.Background(), nil, "")
+	if err != nil || got.Lang != "fr" || len(f.calls) != 1 || f.calls[0] != "" {
+		t.Fatalf("got %+v %v calls=%v", got, err, f.calls)
 	}
 }

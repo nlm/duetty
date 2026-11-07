@@ -18,6 +18,7 @@ const (
 	cancStyle  = "[gray::s]" // cancelled original
 	dimStyle   = "[gray::d]" // cancelled marker
 	pendStyle  = "[gray::i]" // translation in flight
+	liveStyle  = "[gray::i]" // provisional live text and its draft translation
 	errStyle   = "[red]"
 	reset      = "[-::-]"
 	gutter     = " " // blank cell on each side of a pane's text
@@ -60,6 +61,18 @@ func groups(rows []convo.Row) []group {
 		os := origStyle
 		if r.Status == convo.Cancelled {
 			os = cancStyle
+		}
+		if r.Status == convo.Live {
+			g.src = append(g.src, seg{liveStyle, r.Original})
+			if r.Translation == "" {
+				g.oth = append(g.oth, seg{liveStyle, "…"})
+				continue
+			}
+			g.oth = append(g.oth, seg{liveStyle, r.Translation})
+			if r.Stale {
+				g.oth = append(g.oth, seg{liveStyle, "…"})
+			}
+			continue
 		}
 		g.src = append(g.src, seg{os, r.Original})
 		switch r.Status {

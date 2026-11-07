@@ -14,6 +14,7 @@ import (
 
 	"github.com/nlm/poly/internal/apierr"
 	"github.com/nlm/poly/internal/config"
+	"github.com/nlm/poly/internal/usage"
 )
 
 // Result is one transcription.
@@ -25,6 +26,15 @@ type Result struct {
 	AvgLogprob float64
 	// CompressionRatio is the max over segments; 0 when there are no segments.
 	CompressionRatio float64
+	// Segments are Whisper's segments with timings in seconds on the uploaded
+	// audio's timeline; text is trimmed.
+	Segments []Segment
+}
+
+// Segment is one Whisper segment.
+type Segment struct {
+	Start, End float64
+	Text       string
 }
 
 // Transcriber transcribes 16 kHz mono WAV audio. language "" = auto-detect.
@@ -39,6 +49,7 @@ type Client struct {
 	apiKey  string
 	model   string
 	http    *http.Client
+	meter   *usage.Meter
 }
 
 // NewClient builds a Client.
@@ -46,10 +57,21 @@ func NewClient(baseURL, apiKey, model string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, model: model, http: &http.Client{}}
 }
 
+// SetMeter makes the client report billed audio seconds to m. Call it before
+// the client is used concurrently.
+func (c *Client) SetMeter(m *usage.Meter) { c.meter = m }
+
 type response struct {
 	Language string `json:"language"`
 	Text     string `json:"text"`
+	Usage    struct {
+		Type    string  `json:"type"`
+		Seconds float64 `json:"seconds"`
+	} `json:"usage"`
 	Segments []struct {
+		Start            float64 `json:"start"`
+		End              float64 `json:"end"`
+		Text             string  `json:"text"`
 		AvgLogprob       float64 `json:"avg_logprob"`
 		CompressionRatio float64 `json:"compression_ratio"`
 		Tokens           []int   `json:"tokens"`
@@ -105,6 +127,10 @@ func (c *Client) Transcribe(ctx context.Context, wav16k []byte, language string)
 		return Result{}, fmt.Errorf("parse transcription response: %w", err)
 	}
 
+	if p.Usage.Type == "duration" {
+		c.meter.AddAudio(p.Usage.Seconds)
+	}
+
 	res := Result{Text: strings.TrimSpace(p.Text)}
 	if l := strings.TrimSpace(p.Language); l != "" {
 		if code, ok := config.LanguageCode(l); ok {
@@ -115,6 +141,9 @@ func (c *Client) Transcribe(ctx context.Context, wav16k []byte, language string)
 	}
 	var sum float64
 	var n int
+	for _, s := range p.Segments {
+		res.Segments = append(res.Segments, Segment{Start: s.Start, End: s.End, Text: strings.TrimSpace(s.Text)})
+	}
 	for _, s := range p.Segments {
 		w := len(s.Tokens)
 		sum += s.AvgLogprob * float64(w)

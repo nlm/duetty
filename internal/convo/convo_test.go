@@ -23,6 +23,7 @@ type resReply struct {
 type resCall struct {
 	ctx   context.Context
 	wav   string
+	lang  string // ResolveLocked's lang ("" for Resolve)
 	reply chan resReply
 }
 
@@ -36,7 +37,11 @@ type fakeResolver struct {
 }
 
 func (f *fakeResolver) Resolve(ctx context.Context, wav []byte) (stt.Resolved, error) {
-	c := resCall{ctx: ctx, wav: string(wav), reply: make(chan resReply, 1)}
+	return f.ResolveLocked(ctx, wav, "")
+}
+
+func (f *fakeResolver) ResolveLocked(ctx context.Context, wav []byte, lang string) (stt.Resolved, error) {
+	c := resCall{ctx: ctx, wav: string(wav), lang: lang, reply: make(chan resReply, 1)}
 	f.calls <- c
 	if f.honorCtx {
 		select {

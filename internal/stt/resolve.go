@@ -24,7 +24,10 @@ type TextDetector interface {
 	Detect(text string) (lang string, ok bool)
 }
 
-type Resolved struct{ Lang, Text string }
+type Resolved struct {
+	Lang, Text string
+	Segments   []Segment // segments of the pass whose text is returned
+}
 
 type Resolver struct {
 	T                            Transcriber
@@ -69,7 +72,7 @@ func (r *Resolver) check(res Result, lang string) (Resolved, error) {
 	if r.noise(res) {
 		return Resolved{}, ErrNoise
 	}
-	return Resolved{Lang: lang, Text: strings.TrimSpace(res.Text)}, nil
+	return Resolved{Lang: lang, Text: strings.TrimSpace(res.Text), Segments: res.Segments}, nil
 }
 
 type passOut struct {
@@ -163,6 +166,22 @@ func (r *Resolver) Resolve(ctx context.Context, wav16k []byte) (Resolved, error)
 	default:
 		return r.check(x.res, p[0])
 	}
+}
+
+// ResolveLocked transcribes with a single pass forced to lang, for recordings
+// whose language is already decided. lang "" behaves exactly like Resolve.
+func (r *Resolver) ResolveLocked(ctx context.Context, wav16k []byte, lang string) (Resolved, error) {
+	if lang == "" {
+		return r.Resolve(ctx, wav16k)
+	}
+	res, err := r.T.Transcribe(ctx, wav16k, lang)
+	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return Resolved{}, cerr
+		}
+		return Resolved{}, err
+	}
+	return r.check(res, lang)
 }
 
 // DetectTyped picks the language of typed text; falls back to Pair[0].

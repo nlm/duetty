@@ -376,3 +376,17 @@ func TestScrollSharedAndFollow(t *testing.T) {
 		t.Fatal("PgDn did not return to bottom")
 	}
 }
+
+func TestStatusShowsUsage(t *testing.T) {
+	a, sim := newSim(t, 100, 10)
+	a.SetUsage("850 tok · 42s audio")
+	waitFor(t, "usage drawn", func() bool {
+		settle(a)
+		return strings.Contains(dump(sim), " · 850 tok · 42s audio")
+	})
+	a.SetUsage("")
+	waitFor(t, "usage cleared", func() bool {
+		settle(a)
+		return !strings.Contains(dump(sim), "850 tok")
+	})
+}

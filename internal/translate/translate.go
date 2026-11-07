@@ -14,6 +14,7 @@ import (
 
 	"github.com/nlm/poly/internal/apierr"
 	"github.com/nlm/poly/internal/config"
+	"github.com/nlm/poly/internal/usage"
 )
 
 // Pair is a past conversation row, given to the translator as context.
@@ -34,12 +35,17 @@ type Client struct {
 	apiKey  string
 	model   string
 	http    *http.Client
+	meter   *usage.Meter
 }
 
 // NewClient builds a Client.
 func NewClient(baseURL, apiKey, model string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, model: model, http: &http.Client{}}
 }
+
+// SetMeter makes the client report token usage to m. Call it before the
+// client is used concurrently.
+func (c *Client) SetMeter(m *usage.Meter) { c.meter = m }
 
 type message struct {
 	Role    string `json:"role"`
@@ -56,6 +62,10 @@ type response struct {
 	Choices []struct {
 		Message message `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"usage"`
 }
 
 // systemPrompt is the fixed instruction; names are English language names.
@@ -109,6 +119,7 @@ func (c *Client) Translate(ctx context.Context, text, from, to string, history [
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return "", errors.New("parse translation response: invalid JSON")
 	}
+	c.meter.AddTokens(p.Usage.PromptTokens, p.Usage.CompletionTokens) // billed even if unusable
 	if len(p.Choices) == 0 {
 		return "", errors.New("translation response: no choices")
 	}

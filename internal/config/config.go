@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/nlm/poly/internal/usage"
 )
 
 // Config holds every poly setting. Each field is a snake_case TOML key.
@@ -50,7 +52,30 @@ type Config struct {
 	NoiseLogprobFloor   float64 `toml:"noise_logprob_floor"`
 	NoiseMaxCompression float64 `toml:"noise_max_compression"`
 
+	LivePreview       bool    `toml:"live_preview"`
+	PreviewIntervalMS float64 `toml:"preview_interval_ms"`
+
+	// Optional prices for the session cost estimate; no defaults. The
+	// estimate is shown only when all three are set.
+	PriceAudioPerMin *float64 `toml:"price_audio_per_min"`
+	PriceInPerMTok   *float64 `toml:"price_in_per_mtok"`
+	PriceOutPerMTok  *float64 `toml:"price_out_per_mtok"`
+	PriceCurrency    string   `toml:"price_currency"`
+
 	LogFile string `toml:"log_file"` // "" = no log
+}
+
+// Prices returns the configured prices, or nil unless all three are set.
+func (c Config) Prices() *usage.Prices {
+	if c.PriceAudioPerMin == nil || c.PriceInPerMTok == nil || c.PriceOutPerMTok == nil {
+		return nil
+	}
+	return &usage.Prices{
+		AudioPerMin: *c.PriceAudioPerMin,
+		InPerMTok:   *c.PriceInPerMTok,
+		OutPerMTok:  *c.PriceOutPerMTok,
+		Currency:    c.PriceCurrency,
+	}
 }
 
 // userConfigPath returns <user config dir>/poly/config.toml, derived from
@@ -89,6 +114,8 @@ func Defaults() Config {
 		SmartTurnMaxSilenceMS: 2500,
 		NoiseLogprobFloor:     -1.0,
 		NoiseMaxCompression:   2.4,
+		LivePreview:           true,
+		PreviewIntervalMS:     1000,
 	}
 }
 
@@ -129,6 +156,7 @@ func newFlagSet(v *flagVars) *flag.FlagSet {
 	fs.StringVar(&t.SmartTurnModel, "smart-turn-model", t.SmartTurnModel, "path to the Smart Turn model")
 	fs.BoolVar(&t.Denoise, "denoise", t.Denoise, "denoise audio before transcription")
 	fs.StringVar(&t.DenoiseModel, "denoise-model", t.DenoiseModel, "path to the denoise model")
+	fs.BoolVar(&t.LivePreview, "live-preview", t.LivePreview, "show provisional text and translation while speaking; -live-preview=false turns it off (it re-sends audio, raising Whisper cost)")
 	fs.StringVar(&t.LogFile, "log-file", t.LogFile, "write a timings/errors log (never conversation text) to this file")
 	return fs
 }
@@ -211,6 +239,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		"smart-turn-model":     func() { cfg.SmartTurnModel = tmp.SmartTurnModel },
 		"denoise":              func() { cfg.Denoise = tmp.Denoise },
 		"denoise-model":        func() { cfg.DenoiseModel = tmp.DenoiseModel },
+		"live-preview":         func() { cfg.LivePreview = tmp.LivePreview },
 		"log-file":             func() { cfg.LogFile = tmp.LogFile },
 	}
 	for name, apply := range over {
@@ -269,6 +298,17 @@ func (c Config) Validate() error {
 	} {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return fmt.Errorf("%s: must be a finite number, got %g", name, v)
+		}
+	}
+	if !(c.PreviewIntervalMS >= 100) || math.IsInf(c.PreviewIntervalMS, 0) {
+		return fmt.Errorf("preview_interval_ms: must be >= 100, got %g", c.PreviewIntervalMS)
+	}
+	for name, p := range map[string]*float64{
+		"price_audio_per_min": c.PriceAudioPerMin, "price_in_per_mtok": c.PriceInPerMTok,
+		"price_out_per_mtok": c.PriceOutPerMTok,
+	} {
+		if p != nil && (!(*p >= 0) || math.IsInf(*p, 0)) {
+			return fmt.Errorf("%s: must be a finite number >= 0, got %g", name, *p)
 		}
 	}
 	return validateBaseURL(c.BaseURL)

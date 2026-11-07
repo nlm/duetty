@@ -3,6 +3,7 @@ package stt
 import (
 	"context"
 	"encoding/binary"
+	"github.com/nlm/poly/internal/usage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,5 +121,58 @@ func TestPCM48kToWAV16k(t *testing.T) {
 	}
 	if n := le.Uint32(wav[40:]); n != 32000 || len(wav) != 44+32000 || le.Uint32(wav[4:]) != uint32(len(wav)-8) {
 		t.Errorf("data size %d, len %d", n, len(wav))
+	}
+}
+
+func TestTranscribeCountsAudioSeconds(t *testing.T) {
+	c := serve(t, `{"text":"hi","language":"en","usage":{"type":"duration","seconds":3}}`, nil)
+	m := usage.NewMeter(nil)
+	c.SetMeter(m)
+	if _, err := c.Transcribe(context.Background(), []byte("x"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Totals().AudioSeconds; got != 3 {
+		t.Errorf("AudioSeconds = %v, want 3", got)
+	}
+}
+
+func TestTranscribeWithoutUsageCountsNothing(t *testing.T) {
+	for name, body := range map[string]string{
+		"absent":       `{"text":"hi","language":"en"}`,
+		"non-duration": `{"text":"hi","usage":{"type":"tokens","seconds":9}}`,
+	} {
+		c := serve(t, body, nil)
+		m := usage.NewMeter(nil)
+		c.SetMeter(m)
+		if _, err := c.Transcribe(context.Background(), []byte("x"), ""); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := m.Totals().AudioSeconds; got != 0 {
+			t.Errorf("%s: AudioSeconds = %v, want 0", name, got)
+		}
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"usage":{"type":"duration","seconds":3}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "k", "m")
+	m := usage.NewMeter(nil)
+	c.SetMeter(m)
+	if _, err := c.Transcribe(context.Background(), []byte("x"), ""); err == nil {
+		t.Fatal("want error on 500")
+	}
+	if got := m.Totals().AudioSeconds; got != 0 {
+		t.Errorf("non-2xx: AudioSeconds = %v, want 0", got)
+	}
+}
+
+func TestTranscribeParsesSegments(t *testing.T) {
+	c := serve(t, `{"language":"en","text":" Tom is angry. Don't.","segments":[{"start":0,"end":2.6,"text":" Tom is angry."},{"start":3.2,"end":4.9,"text":" Don't."}]}`, nil)
+	res, err := c.Transcribe(context.Background(), []byte("x"), "")
+	want := []Segment{{0, 2.6, "Tom is angry."}, {3.2, 4.9, "Don't."}}
+	if err != nil || len(res.Segments) != 2 || res.Segments[0] != want[0] || res.Segments[1] != want[1] {
+		t.Fatalf("got %+v %v", res.Segments, err)
 	}
 }

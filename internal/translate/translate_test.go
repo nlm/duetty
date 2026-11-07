@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nlm/poly/internal/usage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -154,5 +155,38 @@ func TestCleanReplyKeepsQuotedSource(t *testing.T) {
 		if got := cleanReply(c.reply, c.source); got != c.want {
 			t.Errorf("cleanReply(%q, source %q) = %q want %q", c.reply, c.source, got, c.want)
 		}
+	}
+}
+
+func usageServer(t *testing.T, body string) *Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return NewClient(srv.URL, "k", "m")
+}
+
+func TestTranslateCountsTokens(t *testing.T) {
+	c := usageServer(t, `{"choices":[{"message":{"role":"assistant","content":"Hello"}}],"usage":{"prompt_tokens":23,"completion_tokens":9,"total_tokens":32}}`)
+	m := usage.NewMeter(nil)
+	c.SetMeter(m)
+	if _, err := c.Translate(context.Background(), "Bonjour", "fr", "en", nil); err != nil {
+		t.Fatal(err)
+	}
+	if tot := m.Totals(); tot.InTokens != 23 || tot.OutTokens != 9 {
+		t.Errorf("totals = %+v, want in=23 out=9", tot)
+	}
+}
+
+func TestTranslateCountsWithoutChoices(t *testing.T) {
+	c := usageServer(t, `{"choices":[],"usage":{"prompt_tokens":23,"completion_tokens":9}}`)
+	m := usage.NewMeter(nil)
+	c.SetMeter(m)
+	if _, err := c.Translate(context.Background(), "x", "fr", "en", nil); err == nil {
+		t.Error("want error on empty choices")
+	}
+	if tot := m.Totals(); tot.InTokens != 23 || tot.OutTokens != 9 {
+		t.Errorf("totals = %+v, want in=23 out=9", tot)
 	}
 }

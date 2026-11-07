@@ -52,4 +52,19 @@ denoise = false                   # -denoise
 noise_logprob_floor = -1.0
 noise_max_compression = 2.4
 
+# Live preview: show provisional text and translation while someone speaks.
+# On by default; it re-sends audio, so Whisper cost rises (up to ~4x audio).
+# Set live_preview = false (or -live-preview=false) for one transcription per turn.
+# live_preview = true             # -live-preview
+# preview_interval_ms = 1000      # min 100; config file only
+
+# Session cost estimate in the status bar. No defaults: the estimate appears
+# only when all three prices are set.
+# For reference, not defaults -- Scaleway: whisper-large-v3 EUR 0.003/min;
+# mistral-small-3.2 EUR 0.15 in / EUR 0.35 out per million tokens.
+# price_audio_per_min = 0.003
+# price_in_per_mtok = 0.15
+# price_out_per_mtok = 0.35
+# price_currency = "€"
+
 # log_file = ""                   # -log-file; timings/errors only, never conversation text

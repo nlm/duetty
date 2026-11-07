@@ -18,6 +18,7 @@ import (
 	"github.com/nlm/poly/internal/convo"
 	"github.com/nlm/poly/internal/denoise"
 	"github.com/nlm/poly/internal/langid"
+	"github.com/nlm/poly/internal/live"
 	"github.com/nlm/poly/internal/log"
 	"github.com/nlm/poly/internal/silerovad"
 	"github.com/nlm/poly/internal/smartturn"
@@ -25,6 +26,7 @@ import (
 	"github.com/nlm/poly/internal/translate"
 	"github.com/nlm/poly/internal/trim"
 	"github.com/nlm/poly/internal/ui"
+	"github.com/nlm/poly/internal/usage"
 	"github.com/nlm/poly/internal/vad"
 )
 
@@ -37,6 +39,7 @@ const (
 	meterMaxRMS   = 8000.0                 // RMS shown as a full meter (loud speech)
 	utteranceQ    = 32                     // utterances queued for trimming
 	listenerJoin  = time.Second            // shutdown wait for the VAD goroutine
+	liveLockAfter = 3 * time.Second        // live recording length that locks its language
 )
 
 // noticeShown is how long startup notices stay in the status bar (a var for tests).
@@ -47,6 +50,7 @@ type UI interface {
 	SetRows([]convo.Row)
 	SetStatus(level float64, state string, inFlight int, muted bool)
 	SetNotice(string)
+	SetUsage(string)
 	OnSubmit(func(string))
 	OnCancel(func())
 	OnMuteToggle(func())
@@ -76,6 +80,8 @@ type Deps struct {
 	LogSink log.Sink
 	// Stderr receives startup warnings before the UI starts (nil: os.Stderr).
 	Stderr io.Writer
+	// Meter counts session usage (nil: a new one). Run sets its onChange.
+	Meter *usage.Meter
 }
 
 // Run starts poly and blocks until the UI quits. Startup errors (no API key,
@@ -117,10 +123,21 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	pair := cfg.Languages
 	log.Info("poly starting: %s/%s, stt=%s, translate=%s", pair[0], pair[1], cfg.STTModel, cfg.TranslateModel)
 
+	// Usage counter: always on, shown at the end of the status bar.
+	up := &usagePusher{prices: cfg.Prices()}
+	meter := d.Meter
+	if meter == nil {
+		meter = usage.NewMeter(nil)
+	}
+	meter.SetOnChange(up.push)
+	up.meter = meter
+
 	resolver := d.Resolver
 	if resolver == nil {
+		sc := stt.NewClient(cfg.BaseURL, cfg.APIKey, cfg.STTModel)
+		sc.SetMeter(meter)
 		resolver = &stt.Resolver{
-			T:              stt.NewClient(cfg.BaseURL, cfg.APIKey, cfg.STTModel),
+			T:              sc,
 			ID:             langid.New(pair),
 			Pair:           pair,
 			LogprobFloor:   cfg.NoiseLogprobFloor,
@@ -129,7 +146,9 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	}
 	translator := d.Translator
 	if translator == nil {
-		translator = translate.NewClient(cfg.BaseURL, cfg.APIKey, cfg.TranslateModel)
+		tc := translate.NewClient(cfg.BaseURL, cfg.APIKey, cfg.TranslateModel)
+		tc.SetMeter(meter)
+		translator = tc
 	}
 
 	// Audio pipeline (unless -mic off).
@@ -167,6 +186,22 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	cl := convo.New(pair, resolver, translator, cfg.TranslateContext, rp.changed)
 	rp.log = cl
 	st.ui, st.log = u, cl
+	up.mu.Lock()
+	up.ui = u
+	up.mu.Unlock()
+
+	// Live preview: only with the mic path; otherwise prev stays nil and
+	// every utterance goes through SubmitAudio as before.
+	var prev *live.Previewer
+	if cfg.LivePreview && audio != nil {
+		prev = live.New(live.Config{
+			IntervalMS: cfg.PreviewIntervalMS,
+			MinMS:      cfg.VADMinSpeechMS,
+			LockAfter:  liveLockAfter,
+			Timeout:    convo.RequestTimeout,
+		}, refreshLogger{resolver}, cl)
+		log.Info("live preview on: refresh every %.0f ms", cfg.PreviewIntervalMS)
+	}
 
 	var lst *vad.Listener
 	u.OnSubmit(func(text string) {
@@ -176,6 +211,9 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	u.OnCancel(func() {
 		log.Info("cancel requested (%d in flight)", cl.InFlight())
 		cl.CancelPending()
+		if prev != nil && lst != nil {
+			lst.DropCurrent() // its OnSpeechAbort drops the live turn
+		}
 	})
 	u.OnMuteToggle(func() {
 		if lst != nil {
@@ -214,14 +252,20 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 		}
 		lst.OnSpeechAbort = func() {
 			log.Info("utterance discarded")
+			if prev != nil {
+				prev.Abort()
+			}
 			st.speechEnded()
+		}
+		if prev != nil {
+			lst.OnAudio = prev.Audio
 		}
 		lst.OnMuteChange = func(m bool) {
 			log.Info("muted=%v", m)
 			st.setMuted(m)
 		}
 
-		queue := make(chan []byte, utteranceQ)
+		queue := make(chan utterance, utteranceQ)
 		var probsMu sync.Mutex
 		probs := func(pcm []byte) ([]float32, error) {
 			probsMu.Lock()
@@ -240,10 +284,19 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 			defer close(queue)
 			for pcm := range lst.Utterances() {
 				st.speechEnded()
+				ut := utterance{pcm: pcm}
+				if prev != nil {
+					// Paired here, in delivery order, so a dropped
+					// utterance cannot shift the pairing of later ones.
+					ut.pcm, ut.liveID, ut.lang = prev.End(pcm)
+				}
 				select {
-				case queue <- pcm:
+				case queue <- ut:
 				default:
 					log.Warnf("utterance queue full, dropping one")
+					if ut.liveID != 0 {
+						cl.DropLive(ut.liveID)
+					}
 				}
 			}
 			if ctx.Err() == nil {
@@ -255,11 +308,19 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 		workerDone = make(chan struct{})
 		go func() {
 			defer close(workerDone)
-			for pcm := range queue {
+			for ut := range queue {
 				if ctx.Err() != nil {
 					continue
 				}
-				processUtterance(pcm, probs, cfg.SileroThreshold, margin, cl)
+				wav := trimToWAV(ut.pcm, probs, cfg.SileroThreshold, margin)
+				switch {
+				case ut.liveID != 0 && wav != nil:
+					cl.FinishLive(ut.liveID, wav, ut.lang)
+				case ut.liveID != 0: // nothing left after the early commits
+					cl.DropLive(ut.liveID)
+				case wav != nil:
+					cl.SubmitAudio(wav)
+				}
 			}
 		}()
 	}
@@ -276,6 +337,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 		defer t.Stop()
 	}
 	st.push()
+	up.push()
 	log.SetSink(runSink) // UI owns the terminal from here on
 	runErr := u.Run()
 	log.Info("shutting down")
@@ -297,12 +359,51 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 			log.Warnf("utterance worker did not stop in time")
 		}
 	}
+	if prev != nil {
+		prev.Close()
+	}
 	return runErr
 }
 
-// processUtterance trims a captured utterance to its voiced part and submits
-// it for transcription. Logs durations only, never content.
-func processUtterance(pcm []byte, probs func([]byte) ([]float32, error), threshold float64, margin time.Duration, cl *convo.Log) {
+// utterance is a delivered utterance waiting for the worker. With live
+// preview, pcm is the part not yet committed early and liveID (0: none)
+// the live entry its final pass replaces.
+type utterance struct {
+	pcm    []byte
+	liveID convo.LiveID
+	lang   string // locked language of the live turn, "" for a full resolve
+}
+
+// refreshLogger logs each live preview refresh: its outcome (ok, noise or a
+// short error reason), durations and counts -- never text.
+type refreshLogger struct{ r convo.Resolver }
+
+func (l refreshLogger) ResolveLocked(ctx context.Context, wav16k []byte, lang string) (stt.Resolved, error) {
+	start := time.Now()
+	res, err := l.r.ResolveLocked(ctx, wav16k, lang)
+	outcome := "ok"
+	switch {
+	case errors.Is(err, stt.ErrNoise):
+		outcome = "noise"
+	case err != nil:
+		outcome = convo.ShortError(err)
+	}
+	log.Info("live refresh: %s, %s audio, took %s", outcome, wavDuration(wav16k), time.Since(start).Round(time.Millisecond))
+	if n := live.CommitCount(res.Segments); err == nil && n > 0 {
+		log.Info("live commit: %d segments", n)
+	}
+	return res, err
+}
+
+// wavDuration is the length of a 16 kHz mono s16le WAV (44-byte header).
+func wavDuration(wav []byte) time.Duration {
+	return (time.Duration(max(len(wav)-44, 0)/2) * time.Second / 16000).Round(10 * time.Millisecond)
+}
+
+// trimToWAV trims a captured utterance to its voiced part and encodes it for
+// transcription; nil means nothing is left to send. Logs durations only,
+// never content.
+func trimToWAV(pcm []byte, probs func([]byte) ([]float32, error), threshold float64, margin time.Duration) []byte {
 	start := time.Now()
 	captured := pcmDuration(pcm)
 	p, err := probs(pcm)
@@ -313,17 +414,17 @@ func processUtterance(pcm []byte, probs func([]byte) ([]float32, error), thresho
 		out = trim.Trim(pcm, p, threshold, margin)
 		if out == nil {
 			log.Info("utterance dropped: no voice after trim (%s captured)", captured)
-			return
+			return nil
 		}
 	}
 	wav, err := stt.PCM48kToWAV16k(out)
 	if err != nil {
 		log.Warnf("utterance dropped: wav encode: %v", err)
-		return
+		return nil
 	}
 	log.Info("utterance submitted: %s captured, %s after trim, trim took %s",
 		captured, pcmDuration(out), time.Since(start).Round(time.Millisecond))
-	cl.SubmitAudio(wav)
+	return wav
 }
 
 func pcmDuration(pcm []byte) time.Duration {
@@ -450,6 +551,25 @@ func (p *rowPusher) changed() {
 	p.mu.Unlock()
 	p.st.push()
 	p.outcomes.observe(rows)
+}
+
+// usagePusher shows the usage counter. The meter calls push concurrently
+// from several request goroutines; snapshot and SetUsage happen under one
+// lock so an older total is never shown after a newer one (as rowPusher).
+type usagePusher struct {
+	meter  *usage.Meter
+	prices *usage.Prices
+
+	mu sync.Mutex
+	ui UI // nil until the UI exists; guarded by mu
+}
+
+func (p *usagePusher) push() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ui != nil {
+		p.ui.SetUsage(usage.Format(p.meter.Totals(), p.prices))
+	}
 }
 
 // status holds the status-bar state and pushes it to the UI.

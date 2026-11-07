@@ -1646,3 +1646,365 @@ func TestBusyWhileDeliveryPending(t *testing.T) {
 		t.Error("Busy() still true after the utterance was received")
 	}
 }
+
+// audioRecorder records OnAudio calls, grouping the data into one entry
+// per utterance (a new entry at each start == true).
+type audioRecorder struct {
+	mu     sync.Mutex
+	utts   [][]byte
+	starts int
+	stray  int // data reported before any start
+}
+
+func recordAudio(l *Listener) *audioRecorder {
+	r := &audioRecorder{}
+	l.OnAudio = func(data []byte, start bool) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if start {
+			r.starts++
+			r.utts = append(r.utts, nil)
+		}
+		if len(r.utts) == 0 {
+			r.stray++
+			return
+		}
+		last := len(r.utts) - 1
+		r.utts[last] = append(r.utts[last], data...)
+	}
+	return r
+}
+
+// snapshot returns the per-utterance concatenations, how many starts were
+// seen, and how many calls arrived before any start.
+func (r *audioRecorder) snapshot() (utts [][]byte, starts, stray int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.utts {
+		utts = append(utts, append([]byte(nil), u...))
+	}
+	return utts, r.starts, r.stray
+}
+
+func TestOnAudioConcatEqualsUtterance(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{
+		{}, {}, {started: true}, {}, {ended: true}, // first: two pre-buffered chunks
+		{}, {started: true}, {ended: true}, // second: one pre-buffered chunk
+	}}
+	chunks := make(chan []byte)
+	l := NewListener(chunks, v, 1000)
+	rec := recordAudio(l)
+	go l.Run()
+	defer close(chunks)
+
+	var got [][]byte
+	for i := range 5 {
+		chunks <- chunkOf(4, byte(i+1))
+	}
+	got = append(got, expectUtterance(t, l))
+	for i := 5; i < 8; i++ {
+		chunks <- chunkOf(4, byte(i+1))
+	}
+	got = append(got, expectUtterance(t, l))
+
+	utts, starts, stray := rec.snapshot()
+	if starts != 2 || stray != 0 {
+		t.Fatalf("OnAudio starts = %d, stray calls = %d; want 2 starts, 0 stray", starts, stray)
+	}
+	for i := range got {
+		if string(utts[i]) != string(got[i]) {
+			t.Errorf("utterance %d: OnAudio concatenation = %v, delivered %v", i, utts[i], got[i])
+		}
+	}
+	if len(got[0]) != 5*4 || len(got[1]) != 3*4 {
+		t.Errorf("delivered lengths %d, %d; want 20, 12 (pre-buffer included)", len(got[0]), len(got[1]))
+	}
+}
+
+func TestOnAudioDuringHold(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{
+		{},              // pre-buffered
+		{started: true}, // onset
+		{ended: true},   // pause: judge says wait
+		{}, {},          // quiet while held
+		{started: true}, // resumed speech, same utterance
+		{ended: true},   // pause: judge says done
+	}}
+	j := &fakeJudge{probs: []float32{0.2, 0.9}}
+	chunks, l := newJudgedListener(t, v, j)
+	rec := recordAudio(l)
+	go l.Run()
+	defer close(chunks)
+
+	for i := range 7 {
+		chunks <- chunkOf(chunk100ms, byte(i+1))
+		if i == 2 {
+			if !waitUntil(time.Second, func() bool { return j.Calls() == 1 }) {
+				t.Fatal("judge not asked on the first pause")
+			}
+		}
+	}
+	u := expectUtterance(t, l)
+	if len(u) != 7*chunk100ms {
+		t.Errorf("utterance = %d bytes, want %d", len(u), 7*chunk100ms)
+	}
+	utts, starts, stray := rec.snapshot()
+	if starts != 1 || stray != 0 {
+		t.Fatalf("OnAudio starts = %d, stray = %d; want 1, 0", starts, stray)
+	}
+	if string(utts[0]) != string(u) {
+		t.Errorf("OnAudio concatenation (%d bytes) != delivered utterance (%d bytes)", len(utts[0]), len(u))
+	}
+}
+
+func TestDropCurrentDiscards(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{
+		{}, {started: true}, {}, // dropped after these
+		{}, {started: true}, {}, {ended: true}, // post-drop utterance
+	}}
+	chunks := make(chan []byte)
+	l := NewListener(chunks, v, 1000)
+	rec := recordAudio(l)
+	_, aborts := speechHookCounts(l)
+	go l.Run()
+	defer close(chunks)
+
+	for i := range 3 {
+		chunks <- chunkOf(4, byte(i+1))
+	}
+	if !waitUntil(time.Second, func() bool { return fedCount(l, v) == 3 }) {
+		t.Fatal("chunks not processed")
+	}
+	if !l.DropCurrent() {
+		t.Fatal("DropCurrent() = false during speech, want true")
+	}
+	// Run may still be inside the last chunk's OnAudio, deferring the abort.
+	if !waitUntil(time.Second, func() bool { return aborts.Load() == 1 }) {
+		t.Errorf("OnSpeechAbort fired %d times, want 1", aborts.Load())
+	}
+	if l.Busy() {
+		t.Error("Busy() = true right after DropCurrent")
+	}
+	expectNoUtterance(t, l, "after DropCurrent")
+
+	var want []byte
+	for i := 3; i < 7; i++ {
+		c := chunkOf(4, byte(i+1))
+		want = append(want, c...)
+		chunks <- c
+	}
+	u := expectUtterance(t, l)
+	if string(u) != string(want) {
+		t.Errorf("post-drop utterance = %v, want only the post-drop audio %v", u, want)
+	}
+	utts, starts, _ := rec.snapshot()
+	if starts != 2 {
+		t.Fatalf("OnAudio starts = %d, want 2", starts)
+	}
+	if string(utts[0]) != string(append(chunkOf(4, 1), chunkOf(4, 2)...))+string(chunkOf(4, 3)) {
+		t.Errorf("dropped utterance's OnAudio concatenation = %v, want the 3 pre-drop chunks", utts[0])
+	}
+	if string(utts[1]) != string(u) {
+		t.Errorf("OnAudio concatenation %v != delivered %v", utts[1], u)
+	}
+	if got := aborts.Load(); got != 1 {
+		t.Errorf("OnSpeechAbort fired %d times in total, want 1", got)
+	}
+}
+
+func TestDropCurrentIdle(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{{}, {}}}
+	chunks := make(chan []byte)
+	l := NewListener(chunks, v, 1000)
+	rec := recordAudio(l)
+	_, aborts := speechHookCounts(l)
+	go l.Run()
+	defer close(chunks)
+
+	if l.DropCurrent() {
+		t.Error("DropCurrent() = true before any audio, want false")
+	}
+	chunks <- chunkOf(4, 1)
+	chunks <- chunkOf(4, 2)
+	if !waitUntil(time.Second, func() bool { return fedCount(l, v) == 2 }) {
+		t.Fatal("chunks not processed")
+	}
+	if l.DropCurrent() {
+		t.Error("DropCurrent() = true with only pre-buffer audio, want false")
+	}
+	if got := aborts.Load(); got != 0 {
+		t.Errorf("OnSpeechAbort fired %d times, want 0", got)
+	}
+	if _, starts, stray := rec.snapshot(); starts != 0 || stray != 0 {
+		t.Errorf("OnAudio called (starts %d, stray %d) with no utterance", starts, stray)
+	}
+}
+
+// gatedJudge answers prob, but only once release is closed; entered gets a
+// value each time Predict is called.
+type gatedJudge struct {
+	prob    float32
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedJudge) Predict([]byte) (float32, error) {
+	g.entered <- struct{}{}
+	<-g.release
+	return g.prob, nil
+}
+
+func TestDropCurrentDuringHold(t *testing.T) {
+	v := &fakeVAD{script: append([]fakeVADStep{
+		{started: true}, {ended: true}, // held: judge blocks
+		{}, {started: true}, {}, // post-drop speech
+	}, silentSteps(40)...)}
+	j := &gatedJudge{prob: 0.9, entered: make(chan struct{}, 4), release: make(chan struct{})}
+	chunks := make(chan []byte)
+	l := NewListener(chunks, v, 500)
+	l.SetSilenceMS(200)
+	l.SetTurnJudge(TurnJudgeConfig{Judge: j, Threshold: 0.5, RecheckMS: 600, MaxSilenceMS: 2500})
+	rec := recordAudio(l)
+	_, aborts := speechHookCounts(l)
+	go l.Run()
+	defer close(chunks)
+
+	chunks <- chunkOf(chunk100ms, 1)
+	chunks <- chunkOf(chunk100ms, 2)
+	select {
+	case <-j.entered:
+	case <-time.After(time.Second):
+		t.Fatal("judge never asked")
+	}
+	if !l.DropCurrent() {
+		t.Fatal("DropCurrent() = false during a hold, want true")
+	}
+	close(j.release) // the "done" answer lands after the drop
+	expectNoUtterance(t, l, "by a judge answer for a dropped hold")
+	// With OnAudio set the abort fires on Run's goroutine, once the judge returns.
+	if !waitUntil(time.Second, func() bool { return aborts.Load() == 1 }) {
+		t.Errorf("OnSpeechAbort fired %d times, want 1", aborts.Load())
+	}
+
+	// Listening continues: new speech is a new utterance.
+	for i := range 3 {
+		chunks <- chunkOf(chunk100ms, byte(10+i))
+	}
+	if !waitUntil(time.Second, func() bool { _, s, _ := rec.snapshot(); return s == 2 }) {
+		t.Fatal("post-drop speech did not start a new utterance")
+	}
+	if !l.DropCurrent() {
+		t.Error("DropCurrent() = false during post-drop speech")
+	}
+	// Run may still be inside the onset's OnAudio, deferring the abort.
+	if !waitUntil(time.Second, func() bool { return aborts.Load() == 2 }) {
+		t.Errorf("OnSpeechAbort fired %d times, want 2", aborts.Load())
+	}
+	expectNoUtterance(t, l, "after the second drop")
+	utts, _, stray := rec.snapshot()
+	if stray != 0 {
+		t.Errorf("%d OnAudio calls before any start", stray)
+	}
+	if len(utts[0]) != 2*chunk100ms {
+		t.Errorf("held utterance reported %d bytes, want %d", len(utts[0]), 2*chunk100ms)
+	}
+}
+
+// TestDropCurrentInsideOnAudioAbortsAfterIt checks a drop landing while
+// Run is reporting a chunk fires OnSpeechAbort only after that OnAudio
+// call returns, so a consumer never sees an utterance's audio after its
+// abort.
+func TestDropCurrentInsideOnAudioAbortsAfterIt(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{{started: true}, {}, {ended: true}}}
+	chunks := make(chan []byte)
+	l := NewListener(chunks, v, 1000)
+	var mu sync.Mutex
+	var events []string
+	l.OnAudio = func(_ []byte, start bool) {
+		mu.Lock()
+		events = append(events, fmt.Sprintf("audio(%v)", start))
+		mu.Unlock()
+		if start {
+			if !l.DropCurrent() {
+				t.Error("DropCurrent() = false inside the onset's OnAudio")
+			}
+			mu.Lock()
+			events = append(events, "dropped")
+			mu.Unlock()
+		}
+	}
+	l.OnSpeechAbort = func() {
+		mu.Lock()
+		events = append(events, "abort")
+		mu.Unlock()
+	}
+	go l.Run()
+	defer close(chunks)
+
+	chunks <- chunkOf(4, 1)
+	if !waitUntil(time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return len(events) == 3 }) {
+		t.Fatal("expected audio, drop and abort events")
+	}
+	mu.Lock()
+	got := strings.Join(events, " ")
+	mu.Unlock()
+	if want := "audio(true) dropped abort"; got != want {
+		t.Errorf("events = %q, want %q", got, want)
+	}
+}
+
+// TestDropCurrentAbortPrecedesNextUtterance checks a dropped utterance's
+// OnSpeechAbort arrives before the next utterance's OnSpeechStart and
+// OnAudio(start), even when the abort is slow and new speech is already
+// queued on the mic channel.
+func TestDropCurrentAbortPrecedesNextUtterance(t *testing.T) {
+	v := &fakeVAD{script: []fakeVADStep{
+		{started: true}, {}, // dropped
+		{started: true}, {ended: true}, // next utterance, already buffered
+	}}
+	chunks := make(chan []byte, 8)
+	l := NewListener(chunks, v, 1000)
+	var mu sync.Mutex
+	var events []string
+	add := func(e string) {
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+	}
+	gate := make(chan struct{})
+	l.OnSpeechStart = func() { add("start") }
+	l.OnAudio = func(_ []byte, start bool) { add(fmt.Sprintf("audio(%v)", start)) }
+	l.OnSpeechAbort = func() {
+		<-gate
+		add("abort")
+	}
+	go l.Run()
+	defer close(chunks)
+
+	chunks <- chunkOf(4, 1)
+	chunks <- chunkOf(4, 2)
+	if !waitUntil(time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return len(events) == 3 }) {
+		t.Fatal("first utterance not reported")
+	}
+	dropped := make(chan bool, 1)
+	go func() { dropped <- l.DropCurrent() }()
+	if !waitUntil(time.Second, func() bool { return !l.Busy() }) {
+		t.Fatal("DropCurrent never took effect")
+	}
+	chunks <- chunkOf(4, 3)
+	chunks <- chunkOf(4, 4)
+	time.Sleep(20 * time.Millisecond) // give a misordered Run time to report the new onset
+	close(gate)
+	if !<-dropped {
+		t.Fatal("DropCurrent() = false during speech")
+	}
+	expectUtterance(t, l)
+
+	mu.Lock()
+	got := strings.Join(events, " ")
+	mu.Unlock()
+	want := "start audio(true) audio(false) abort start audio(true) audio(false)"
+	if got != want {
+		t.Errorf("events = %q, want %q", got, want)
+	}
+}

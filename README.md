@@ -68,6 +68,21 @@ translate_model = "mistral-small-3.2-24b-instruct-2506"
 export OPENAI_API_KEY=...   # your Scaleway secret key
 ```
 
+### Live preview and cost
+
+With live preview on, poly shows provisional text and translation in both panes
+while someone is speaking, and finished sentences appear before the speaker
+stops. It works by re-sending audio to Whisper, so transcription cost rises
+(roughly up to 4x the audio). It is on by default; turn it off with
+`live_preview = false` or `-live-preview=false` to get one transcription per
+turn (`preview_interval_ms`, minimum 100, is config-file only).
+
+The status bar shows a session counter of tokens and audio duration. A price
+estimate is added only when all three of `price_audio_per_min`,
+`price_in_per_mtok` and `price_out_per_mtok` are set (optionally
+`price_currency`); there are no default prices. `config.example.toml` lists
+Scaleway figures for reference.
+
 ## Usage
 
 ```
@@ -86,7 +101,7 @@ poly -langs fr,en -log-file poly.log
 | key | action |
 |-----|--------|
 | Enter | send typed text |
-| Esc | cancel the pending translation (cancelled rows stay, greyed out) |
+| Esc | cancel the pending translation (cancelled rows stay, greyed out); with live preview on, also drop the sentence being spoken (its provisional line and audio); sentences already committed stay |
 | Ctrl+P | mute / unmute the microphone |
 | PgUp / PgDn, mouse wheel | scroll both panes |
 | ? | help (when the input is empty) |

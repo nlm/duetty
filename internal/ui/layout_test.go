@@ -231,3 +231,25 @@ func TestLayoutStyleSplitAcrossWrap(t *testing.T) {
 		t.Fatalf("%q", r)
 	}
 }
+
+func TestLayoutLiveRow(t *testing.T) {
+	live := row(2, convo.Live, "fr", "Je voudrais", "I would like")
+	live.Stale = true
+	l, r := Layout([]convo.Row{row(1, convo.Done, "fr", "Bonjour.", "Hello."), live}, pair, 100, false)
+	if got := strings.TrimSpace(plain(l[0])); got != "» Bonjour. Je voudrais" {
+		t.Fatalf("left = %q", got)
+	}
+	if !strings.Contains(l[0], "[gray::i]Je voudrais") {
+		t.Fatalf("live source style: %q", l[0])
+	}
+	if !strings.Contains(r[0], "[gray::i]I would like") || !strings.Contains(plain(r[0]), "I would like …") {
+		t.Fatalf("live translation: %q", r[0])
+	}
+}
+
+func TestLayoutLiveNoTranslationYet(t *testing.T) {
+	l, _ := Layout([]convo.Row{row(1, convo.Live, "en", "Hello th", "")}, pair, 100, false)
+	if !strings.Contains(l[0], "[gray::i]…") {
+		t.Fatalf("left = %q", l[0])
+	}
+}
