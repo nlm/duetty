@@ -161,8 +161,12 @@ translates.
      CPU, ideally 48 kHz like the mic) and adds a setup script like
      talktome's `scripts/setup-*.sh`. If the model is missing, warn and run
      without it.
-4. **Add the row and show the original** in its language's pane (marked ●, brighter). The
-   other pane shows "…translating".
+4. **Add the row and show the original** in its language's pane (marked »,
+   plain gray: it is only there so the speaker can check what was heard).
+   The other pane shows "…" until the translation arrives, in the
+   terminal's normal text color: it is what the other person reads. Consecutive sentences in the same language
+   are appended to the same paragraph instead of starting a new one. The UI
+   uses the terminal's own colors; the input box has a rounded border.
 5. **Translate:** one `/chat/completions` call, temperature 0, system prompt
    "translate from A to B, output only the translation". It includes the last
    few rows (original + translation) as context, so short replies and
@@ -188,12 +192,12 @@ mic keeps listening.
 
 ```
 ┌─ Français ───────────────────────────┬─ English ────────────────────────────┐
-│ ● Bonjour, vous êtes arrivé quand ?  │   Hello, when did you arrive?        │
+│ » Bonjour, vous êtes arrivé quand ?  │   Hello, when did you arrive?        │
 │                                      │                                      │
-│   Je suis arrivé hier soir, en       │ ● I arrived yesterday evening, by    │
+│   Je suis arrivé hier soir, en       │ » I arrived yesterday evening, by    │
 │   train.                             │   train.                             │
 │                                      │                                      │
-│ ● On peut se voir demain ?           │   …translating                       │
+│ » On peut se voir demain ?           │   …translating                       │
 ├──────────────────────────────────────┴──────────────────────────────────────┤
 │ ▮▮▮▮▮▯▯▯  listening                                  fr ⇄ en   mistral-small │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -201,11 +205,11 @@ mic keeps listening.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Left pane = first configured language, right = second. Header shows the
-  language name.
+- Left pane = first configured language, right = second. No header row:
+  the status bar's `fr ⇄ en` gives the order.
 - Rows are **aligned**: a row takes the height of its taller side, so both
   versions of a sentence start on the same line.
-- ● + bright = what was actually said or typed. Plain/softer color =
+- » + bright = what was actually said or typed. Plain/softer color =
   translation.
 - Status bar: mic level meter, state (listening / hearing / muted),
   number of in-flight requests if any, language pair, chat model.

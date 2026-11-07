@@ -3,6 +3,9 @@ package ui
 
 import (
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/nlm/poly/internal/convo"
@@ -10,12 +13,14 @@ import (
 )
 
 const (
-	srcStyle  = "[white::b]"
-	softStyle = "[gray]"
-	dimStyle  = "[gray::d]"
-	pendStyle = "[gray::i]"
-	errStyle  = "[red]"
-	reset     = "[-::-]"
+	origStyle  = "[gray]"    // what was heard or typed: input check only
+	transStyle = "[-::-]"    // the translation: terminal default color, no attributes
+	cancStyle  = "[gray::s]" // cancelled original
+	dimStyle   = "[gray::d]" // cancelled marker
+	pendStyle  = "[gray::i]" // translation in flight
+	errStyle   = "[red]"
+	reset      = "[-::-]"
+	gutter     = " " // blank cell on each side of a pane's text
 )
 
 // ColumnWidth is the width in cells of each pane for a total screen width:
@@ -28,21 +33,69 @@ func ColumnWidth(width int) int {
 	return w
 }
 
+// seg is a styled run of text inside a paragraph.
+type seg struct{ style, text string }
+
+// group is a run of consecutive rows spoken in the same language: shown as
+// one paragraph per side instead of one paragraph per sentence.
+type group struct {
+	lang     string
+	at       time.Time
+	src, oth []seg
+	failed   string // transcription failure (a group of its own)
+}
+
+// groups merges consecutive same-language rows.
+func groups(rows []convo.Row) []group {
+	var gs []group
+	for _, r := range rows {
+		if r.Status == convo.Failed && strings.TrimSpace(r.Original) == "" {
+			gs = append(gs, group{at: r.At, failed: r.Err})
+			continue
+		}
+		if n := len(gs); n == 0 || gs[n-1].failed != "" || gs[n-1].lang != r.Lang {
+			gs = append(gs, group{lang: r.Lang, at: r.At})
+		}
+		g := &gs[len(gs)-1]
+		os := origStyle
+		if r.Status == convo.Cancelled {
+			os = cancStyle
+		}
+		g.src = append(g.src, seg{os, r.Original})
+		switch r.Status {
+		case convo.Original:
+			g.oth = append(g.oth, seg{pendStyle, "…"})
+		case convo.Cancelled:
+			g.oth = append(g.oth, seg{dimStyle, "(cancelled)"})
+		case convo.Failed:
+			g.oth = append(g.oth, seg{errStyle, "(" + r.Err + ")"})
+		default:
+			g.oth = append(g.oth, seg{transStyle, r.Translation})
+		}
+	}
+	return gs
+}
+
 // Layout renders rows into two equal-height columns of tview-tagged lines.
 // width is the total screen width; each column is ColumnWidth(width) cells
-// wide, measured in display cells (CJK is double width). Every row occupies
-// the same line range in both columns, followed by one blank line.
+// wide, measured in display cells (CJK is double width), with a one-cell
+// gutter on each side. Consecutive rows in the same language form one
+// paragraph; each paragraph occupies the same line range in both columns,
+// and paragraphs are separated by one blank line.
 func Layout(rows []convo.Row, pair [2]string, width int, timestamps bool) (left, right []string) {
-	cw := ColumnWidth(width)
-	for i, r := range rows {
+	cw, gut := ColumnWidth(width), gutter
+	if cw < 8 {
+		gut = "" // too narrow to spare the gutter
+	}
+	cw -= 2 * len(gut)
+	for i, g := range groups(rows) {
 		if i > 0 {
 			left = append(left, "")
 			right = append(right, "")
 		}
-		src, oth := renderRow(r, cw, timestamps)
-		srcIsLeft := r.Lang != pair[1]
+		src, oth := renderGroup(g, cw, timestamps)
 		a, b := src, oth
-		if !srcIsLeft {
+		if g.failed == "" && g.lang == pair[1] {
 			a, b = oth, src
 		}
 		for len(a) < len(b) {
@@ -51,61 +104,104 @@ func Layout(rows []convo.Row, pair [2]string, width int, timestamps bool) (left,
 		for len(b) < len(a) {
 			b = append(b, "")
 		}
-		left = append(left, a...)
-		right = append(right, b...)
+		for _, ln := range a {
+			left = append(left, gut+ln)
+		}
+		for _, ln := range b {
+			right = append(right, gut+ln)
+		}
 	}
 	return left, right
 }
 
-// renderRow returns the source-side and other-side lines of one row.
-func renderRow(r convo.Row, cw int, ts bool) (src, oth []string) {
+// renderGroup returns the source-side and other-side lines of one group.
+func renderGroup(g group, cw int, ts bool) (src, oth []string) {
 	stamp := ""
-	if ts && !r.At.IsZero() {
-		stamp = r.At.Format("15:04") + " "
+	if ts && !g.at.IsZero() {
+		stamp = g.at.Format("15:04") + " "
 	}
 	if stamp != "" && cw < len(stamp)+2+2 {
 		stamp = "" // no room for the timestamp plus one wide rune
 	}
 	indent := runewidth.StringWidth(stamp) + 2
 	pad := strings.Repeat(" ", indent)
-	first := func(marker string) string { return stamp + marker }
-
-	cancelled := r.Status == convo.Cancelled
-	origStyle, othStyle := srcStyle, softStyle
-	if cancelled {
-		origStyle = dimStyle
-	}
-
-	block := func(style, firstPrefix, text string) []string {
-		lines := wrap(text, cw-indent)
-		out := make([]string, 0, len(lines))
-		for i, ln := range lines {
+	block := func(marker string, segs []seg) []string {
+		lines := wrapSegs(segs, cw-indent)
+		for i := range lines {
 			p := pad
 			if i == 0 {
-				p = firstPrefix
+				p = stamp + marker
 			}
-			out = append(out, p+style+tview.Escape(ln)+reset)
+			lines[i] = p + lines[i]
 		}
-		return out
+		return lines
 	}
+	if g.failed != "" {
+		return block("  ", []seg{{errStyle, g.failed}}), nil
+	}
+	return block(origStyle+"»"+reset+" ", g.src), block("  ", g.oth)
+}
 
-	switch {
-	case r.Status == convo.Failed && strings.TrimSpace(r.Original) == "":
-		// Transcription failed: nothing to show but the error.
-		return block(errStyle, first("  "), r.Err), nil
+// joinable reports whether two texts join without a space (CJK to CJK).
+func joinable(prev, next string) bool {
+	p, _ := utf8.DecodeLastRuneInString(prev)
+	n, _ := utf8.DecodeRuneInString(next)
+	return runewidth.RuneWidth(p) > 1 && runewidth.RuneWidth(n) > 1
+}
+
+// wrapSegs wraps styled segments as one paragraph and returns tagged lines.
+// wrap keeps every non-space rune in order, so each output rune is mapped
+// back to its segment by counting non-space runes.
+func wrapSegs(segs []seg, width int) []string {
+	var plainText strings.Builder
+	var owner []int // segment index of each non-space rune
+	for i, s := range segs {
+		t := strings.Join(strings.Fields(s.text), " ")
+		if t == "" {
+			continue
+		}
+		if plainText.Len() > 0 && !joinable(plainText.String(), t) {
+			plainText.WriteByte(' ')
+		}
+		plainText.WriteString(t)
+		for _, c := range t {
+			if !unicode.IsSpace(c) {
+				owner = append(owner, i)
+			}
+		}
 	}
-	src = block(origStyle, first("● "), r.Original)
-	switch r.Status {
-	case convo.Original:
-		oth = []string{first("  ") + pendStyle + "…translating" + reset}
-	case convo.Cancelled:
-		oth = []string{first("  ") + dimStyle + "cancelled" + reset}
-	case convo.Failed:
-		oth = block(errStyle, first("  "), r.Err)
-	default:
-		oth = block(othStyle, first("  "), r.Translation)
+	lines := wrap(plainText.String(), width)
+	k := 0
+	out := make([]string, len(lines))
+	for li, ln := range lines {
+		var b strings.Builder
+		cur := -1
+		var run strings.Builder
+		flush := func() {
+			if run.Len() > 0 {
+				b.WriteString(segs[cur].style + tview.Escape(run.String()) + reset)
+				run.Reset()
+			}
+		}
+		for _, c := range ln {
+			o := cur
+			if !unicode.IsSpace(c) && k < len(owner) {
+				o = owner[k]
+				k++
+			}
+			if o != cur {
+				flush()
+				cur = o
+			}
+			if cur < 0 { // leading space before any rune: cannot happen, wrap trims
+				continue
+			}
+			run.WriteRune(c)
+		}
+		flush()
+		out[li] = b.String()
 	}
-	return src, oth
+	return out
 }
 
 // wrap breaks text into lines of at most width display cells: CJK (any wide

@@ -200,17 +200,17 @@ func TestScreenDump(t *testing.T) {
 		waitFor(t, "rows drawn", func() bool {
 			settle(a)
 			o := dump(sim)
-			return strings.Contains(o, "working (1)") && strings.Contains(o, "…translating")
+			return strings.Contains(o, "working (1)") && strings.Contains(o, "Deux personnes")
 		})
 		out := dump(sim)
 		t.Logf("width %d:\n%s", w, out)
-		if !strings.Contains(out, "Français") || !strings.Contains(out, "日本語") {
-			t.Fatalf("missing header:\n%s", out)
+		if strings.Contains(out, "Français") || strings.Contains(out, "日本語") {
+			t.Fatalf("language headers should be gone:\n%s", out)
 		}
 		// Row 2: the original (right) starts on the same screen line as its translation (left).
 		lineJP, lineEN := -1, -1
 		for i, ln := range strings.Split(out, "\n") {
-			if strings.Contains(ln, "● 何") {
+			if strings.Contains(ln, "» 何") {
 				lineJP = i
 			}
 			if strings.Contains(ln, "How many") {
@@ -334,7 +334,9 @@ func TestScrollSharedAndFollow(t *testing.T) {
 	a, sim := newSim(t, 60, 10) // body height 7
 	var rows []convo.Row
 	for i := 0; i < 20; i++ {
-		rows = append(rows, row(uint64(i), convo.Done, "fr", fmt.Sprintf("ligne%02d", i), fmt.Sprintf("line%02d", i)))
+		// alternate languages so rows stay separate paragraphs
+		lang := []string{"fr", "en"}[i%2]
+		rows = append(rows, row(uint64(i), convo.Done, lang, fmt.Sprintf("ligne%02d", i), fmt.Sprintf("line%02d", i)))
 	}
 	a.SetRows(rows)
 	time.Sleep(100 * time.Millisecond)

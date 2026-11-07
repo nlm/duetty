@@ -47,14 +47,14 @@ func TestLayoutAlignsRows(t *testing.T) {
 	}
 	idx := -1
 	for i := range r {
-		if strings.HasPrefix(plain(r[i]), "● ok") {
+		if strings.HasPrefix(plain(r[i]), " » ok") {
 			idx = i
 		}
 	}
 	if idx < 4 {
 		t.Fatalf("second row too early at %d: %q", idx, l)
 	}
-	if !strings.HasPrefix(plain(l[idx]), "  d'accord") {
+	if !strings.HasPrefix(plain(l[idx]), "   d'accord") {
 		t.Fatalf("translation not aligned with original: l=%q r=%q", l[idx], r[idx])
 	}
 	if plain(l[idx-1]) != "" || plain(r[idx-1]) != "" {
@@ -67,14 +67,20 @@ func TestLayoutAlignsRows(t *testing.T) {
 
 func TestLayoutMarksSource(t *testing.T) {
 	l, r := Layout([]convo.Row{row(1, convo.Done, "en", "hi", "salut")}, pair, 41, false)
-	if !strings.HasPrefix(plain(r[0]), "●") || strings.HasPrefix(plain(l[0]), "●") {
+	if !strings.HasPrefix(plain(r[0]), " »") || strings.Contains(plain(l[0]), "»") {
 		t.Fatalf("l=%q r=%q", l[0], r[0])
 	}
-	if !strings.Contains(r[0], "[white::b]") {
-		t.Fatalf("source not bright: %q", r[0])
+	if strings.Contains(r[0], "::b]") || !strings.Contains(r[0], "[gray]hi") {
+		t.Fatalf("original should be plain gray: %q", r[0])
+	}
+	if !strings.HasPrefix(r[0], " [gray]»[-::-] ") {
+		t.Fatalf("marker should share the original's gray: %q", r[0])
+	}
+	if !strings.Contains(l[0], "[-::-]salut") {
+		t.Fatalf("translation should be plain default color: %q", l[0])
 	}
 	l, r = Layout([]convo.Row{row(1, convo.Done, "fr", "salut", "hi")}, pair, 41, false)
-	if !strings.HasPrefix(plain(l[0]), "●") || strings.HasPrefix(plain(r[0]), "●") {
+	if !strings.HasPrefix(plain(l[0]), " »") || strings.Contains(plain(r[0]), "»") {
 		t.Fatalf("fr: l=%q r=%q", l[0], r[0])
 	}
 }
@@ -90,10 +96,10 @@ func TestLayoutCJKWidth(t *testing.T) {
 			t.Fatalf("line %q is %d cells", ln, w)
 		}
 	}
-	if !strings.HasPrefix(plain(l[0]), "●") || !strings.HasPrefix(plain(r[0]), "  short") {
+	if !strings.HasPrefix(plain(l[0]), " »") || !strings.HasPrefix(plain(r[0]), "   short") {
 		t.Fatalf("rows not aligned: %q %q", l[0], r[0])
 	}
-	if !strings.HasPrefix(plain(l[1]), "  ") {
+	if !strings.HasPrefix(plain(l[1]), "   ") {
 		t.Fatalf("no indent: %q", l[1])
 	}
 }
@@ -107,7 +113,7 @@ func TestLayoutNarrow(t *testing.T) {
 				t.Fatalf("w=%d misaligned", w)
 			}
 			cw := (w - 1) / 2
-			// A column narrower than "● " plus one wide rune (4 cells)
+			// A column narrower than "» " plus one wide rune (4 cells)
 			// physically cannot hold a CJK glyph; otherwise every line fits.
 			limit := cw
 			if limit < 4 {
@@ -124,7 +130,7 @@ func TestLayoutNarrow(t *testing.T) {
 
 func TestLayoutPendingTranslation(t *testing.T) {
 	l, r := Layout([]convo.Row{row(1, convo.Original, "fr", "salut", "")}, pair, 41, false)
-	if !strings.Contains(plain(r[0]), "…translating") {
+	if !strings.Contains(plain(r[0]), "…") || !strings.Contains(r[0], "[gray::i]") {
 		t.Fatalf("%q %q", l, r)
 	}
 }
@@ -134,10 +140,16 @@ func TestLayoutCancelledAndFailed(t *testing.T) {
 	if !strings.Contains(plain(r[0]), "cancelled") {
 		t.Fatalf("%q", r)
 	}
+	if l, _ := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false); !strings.Contains(l[0], "[gray::s]salut") {
+		t.Fatalf("cancelled original not struck through: %q", l)
+	}
+	if false {
+		t.Fatalf("%q", r)
+	}
 	f := row(1, convo.Failed, "fr", "salut", "")
 	f.Err = "translation failed"
 	_, r = Layout([]convo.Row{f}, pair, 41, false)
-	if !strings.Contains(plain(r[0]), "translation failed") || !strings.Contains(r[0], "[red]") {
+	if !strings.Contains(strings.Join(mapPlain(r), " "), "translation failed") || !strings.Contains(r[0], "[red]") {
 		t.Fatalf("%q", r)
 	}
 }
@@ -149,7 +161,7 @@ func TestLayoutTimestamps(t *testing.T) {
 		t.Fatal("timestamp shown when off")
 	}
 	l, r = Layout(rows, pair, 41, true)
-	if !strings.HasPrefix(plain(l[0]), "14:02 ") || !strings.HasPrefix(plain(r[0]), "14:02 ") {
+	if !strings.HasPrefix(plain(l[0]), " 14:02 ") || !strings.HasPrefix(plain(r[0]), " 14:02 ") {
 		t.Fatalf("%q %q", l[0], r[0])
 	}
 }
@@ -159,7 +171,63 @@ func TestLayoutEscapesTags(t *testing.T) {
 	if !strings.Contains(plain(l[0]), "[red]hi") {
 		t.Fatalf("%q", l[0])
 	}
-	if got := tview.TaggedStringWidth(l[0]); got != runewidth.StringWidth("● [red]hi") {
+	if got := tview.TaggedStringWidth(l[0]); got != runewidth.StringWidth(" » [red]hi") {
 		t.Fatalf("width %d for %q", got, l[0])
+	}
+}
+
+func mapPlain(ls []string) []string {
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		out[i] = strings.TrimSpace(plain(l))
+	}
+	return out
+}
+
+func TestLayoutMergesSameLanguage(t *testing.T) {
+	rows := []convo.Row{
+		row(1, convo.Done, "fr", "Bonjour.", "Hello."),
+		row(2, convo.Done, "fr", "Ça va ?", "How are you?"),
+		row(3, convo.Original, "fr", "Et toi ?", ""),
+		row(4, convo.Done, "en", "Fine.", "Bien."),
+		row(5, convo.Done, "fr", "Super.", "Great."),
+	}
+	l, r := Layout(rows, pair, 81, false)
+	if len(l) != len(r) {
+		t.Fatalf("len %d vs %d", len(l), len(r))
+	}
+	pl, pr := mapPlain(l), mapPlain(r)
+	want := []string{"» Bonjour. Ça va ? Et toi ?", "", "Bien.", "", "» Super."}
+	wantR := []string{"Hello. How are you? …", "", "» Fine.", "", "Great."}
+	for i := range want {
+		if pl[i] != want[i] || pr[i] != wantR[i] {
+			t.Fatalf("line %d: %q | %q\nleft=%q\nright=%q", i, pl[i], pr[i], pl, pr)
+		}
+	}
+	if !strings.Contains(r[0], "[-::-]How are you? [-::-][gray::i]…") {
+		t.Fatalf("styles not kept per sentence: %q", r[0])
+	}
+}
+
+func TestLayoutMergesCJKWithoutSpace(t *testing.T) {
+	rows := []convo.Row{
+		row(1, convo.Done, "ja", "こんにちは。", "Hello."),
+		row(2, convo.Done, "ja", "元気？", "How are you?"),
+	}
+	l, _ := Layout(rows, [2]string{"ja", "en"}, 81, false)
+	if got := strings.TrimSpace(plain(l[0])); got != "» こんにちは。元気？" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestLayoutStyleSplitAcrossWrap(t *testing.T) {
+	rows := []convo.Row{
+		row(1, convo.Done, "fr", "a", "one two three"),
+		row(2, convo.Cancelled, "fr", "b", ""),
+	}
+	_, r := Layout(rows, pair, 31, false) // 15-cell columns, 11 for text
+	joined := strings.Join(r, "\n")
+	if !strings.Contains(joined, "[-::-]three") || !strings.Contains(joined, "[gray::d](cancelled)") {
+		t.Fatalf("%q", r)
 	}
 }

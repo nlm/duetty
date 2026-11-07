@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nlm/poly/internal/config"
 	"github.com/nlm/poly/internal/convo"
 	"github.com/rivo/tview"
 )
@@ -24,14 +23,14 @@ type App struct {
 	model      string
 	timestamps bool
 
-	app                      *tview.Application
-	pages                    *tview.Pages
-	hdrL, hdrR, bodyL, bodyR *tview.TextView
-	status                   *tview.TextView
-	input                    *tview.InputField
-	onSubmit                 func(string)
-	onCancel, onMute         func()
-	helpOpen                 bool
+	app              *tview.Application
+	pages            *tview.Pages
+	bodyL, bodyR     *tview.TextView
+	status           *tview.TextView
+	input            *tview.InputField
+	onSubmit         func(string)
+	onCancel, onMute func()
+	helpOpen         bool
 
 	mu       sync.Mutex // guards the fields below
 	rows     []convo.Row
@@ -57,8 +56,38 @@ type App struct {
 	nLines        int
 }
 
+// useTerminalColors makes every tview primitive draw with the terminal's own
+// foreground and background instead of tview's black-and-blue theme. It must
+// run before any primitive is created: primitives copy tview.Styles.
+func useTerminalColors() {
+	d := tcell.ColorDefault
+	tview.Styles = tview.Theme{
+		PrimitiveBackgroundColor:    d,
+		ContrastBackgroundColor:     d,
+		MoreContrastBackgroundColor: d,
+		BorderColor:                 d,
+		TitleColor:                  d,
+		GraphicsColor:               d,
+		PrimaryTextColor:            d,
+		SecondaryTextColor:          d,
+		TertiaryTextColor:           d,
+		InverseTextColor:            d,
+		ContrastSecondaryTextColor:  d,
+	}
+	// Rounded light borders (as in talktome), unchanged when focused.
+	b := &tview.Borders
+	b.TopLeft = tview.BoxDrawingsLightArcDownAndRight
+	b.TopRight = tview.BoxDrawingsLightArcDownAndLeft
+	b.BottomLeft = tview.BoxDrawingsLightArcUpAndRight
+	b.BottomRight = tview.BoxDrawingsLightArcUpAndLeft
+	b.TopLeftFocus, b.TopRightFocus = b.TopLeft, b.TopRight
+	b.BottomLeftFocus, b.BottomRightFocus = b.BottomLeft, b.BottomRight
+	b.HorizontalFocus, b.VerticalFocus = b.Horizontal, b.Vertical
+}
+
 // New builds the UI for a language pair.
 func New(pair [2]string, model string, timestamps bool) *App {
+	useTerminalColors()
 	a := &App{
 		pair: pair, model: model, timestamps: timestamps,
 		state: "listening", following: true,
@@ -68,13 +97,19 @@ func New(pair [2]string, model string, timestamps bool) *App {
 	mk := func() *tview.TextView {
 		return tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetScrollable(true)
 	}
-	a.bodyL, a.bodyR, a.hdrL, a.hdrR = mk(), mk(), mk(), mk()
+	a.bodyL, a.bodyR = mk(), mk()
 	a.bodyL.SetDisabled(true)
 	a.bodyR.SetDisabled(true)
-	a.hdrL.SetText("[::b]" + tview.Escape(config.LanguageName(pair[0])))
-	a.hdrR.SetText("[::b]" + tview.Escape(config.LanguageName(pair[1])))
 	a.status = tview.NewTextView().SetDynamicColors(true)
-	a.input = tview.NewInputField().SetLabel("> ")
+	a.status.SetBorderPadding(0, 0, 1, 1)
+	a.input = tview.NewInputField().SetLabel(" > ").
+		SetFieldBackgroundColor(tcell.ColorDefault).
+		SetFieldTextColor(tcell.ColorDefault).
+		SetLabelColor(tcell.ColorDefault).
+		SetPlaceholder("type a sentence, Enter to send · ? for keys").
+		SetPlaceholderTextColor(tcell.ColorGray)
+	a.input.SetBorder(true)
+	a.input.SetBorderPadding(0, 0, 0, 1)
 	a.input.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
 			return
@@ -86,7 +121,6 @@ func New(pair [2]string, model string, timestamps bool) *App {
 		}
 	})
 
-	sep := func() *tview.TextView { return tview.NewTextView().SetText("│") }
 	cols := func(l, r tview.Primitive, s tview.Primitive) *tview.Flex {
 		f := tview.NewFlex()
 		f.AddItem(l, 0, 1, false).AddItem(s, 1, 0, false).AddItem(r, 0, 1, false)
@@ -100,10 +134,10 @@ func New(pair [2]string, model string, timestamps bool) *App {
 		return x, y, w, h
 	})
 	root := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(cols(a.hdrL, a.hdrR, sep()), 1, 0, false).
 		AddItem(cols(a.bodyL, a.bodyR, bodySep), 0, 1, false).
-		AddItem(a.status, 1, 0, false).
-		AddItem(a.input, 1, 0, true)
+		AddItem(nil, 1, 0, false). // blank line above the input box
+		AddItem(a.input, 3, 0, true).
+		AddItem(a.status, 1, 0, false)
 
 	a.pages = tview.NewPages().AddPage("main", root, true, true)
 	help := tview.NewTextView().SetText(helpText).SetTextAlign(tview.AlignLeft)
@@ -204,9 +238,9 @@ func (a *App) pageSize() int {
 	return 1
 }
 
-// bodyHeight is the pane height: the screen minus header, status and input.
+// bodyHeight is the pane height: the screen minus the blank spacer, the bordered input box (3 lines) and the status line.
 func (a *App) bodyHeight() int {
-	if h := a.height - 3; h > 1 {
+	if h := a.height - 5; h > 1 {
 		return h
 	}
 	return 1
