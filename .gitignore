@@ -1,0 +1,6 @@
+/poly
+/poly-eval
+models/
+third_party/
+eval/clips/
+.superpowers/
