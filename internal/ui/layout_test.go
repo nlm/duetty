@@ -1,0 +1,165 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mattn/go-runewidth"
+	"github.com/nlm/poly/internal/convo"
+	"github.com/rivo/tview"
+)
+
+var pair = [2]string{"fr", "en"}
+
+// plain strips tview tags and unescapes, giving the visible text.
+func plain(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '[' {
+			if j := strings.IndexByte(s[i:], ']'); j >= 0 {
+				if j > 1 && s[i+j-1] == '[' { // escaped "[x[]" -> "[x]"
+					b.WriteString(s[i:i+j-1] + "]")
+				}
+				i += j + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func row(seq uint64, st convo.Status, lang, orig, tr string) convo.Row {
+	return convo.Row{Seq: seq, At: time.Date(2026, 1, 1, 14, 2, 0, 0, time.Local), Status: st, Lang: lang, Original: orig, Translation: tr}
+}
+
+func TestLayoutAlignsRows(t *testing.T) {
+	long := "bonjour tout le monde comment allez vous aujourd'hui mon ami je voudrais un cafe"
+	rows := []convo.Row{
+		row(1, convo.Done, "fr", long, "hello"),
+		row(2, convo.Done, "en", "ok", "d'accord"),
+	}
+	l, r := Layout(rows, pair, 41, false)
+	if len(l) != len(r) {
+		t.Fatalf("len %d vs %d", len(l), len(r))
+	}
+	idx := -1
+	for i := range r {
+		if strings.HasPrefix(plain(r[i]), "● ok") {
+			idx = i
+		}
+	}
+	if idx < 4 {
+		t.Fatalf("second row too early at %d: %q", idx, l)
+	}
+	if !strings.HasPrefix(plain(l[idx]), "  d'accord") {
+		t.Fatalf("translation not aligned with original: l=%q r=%q", l[idx], r[idx])
+	}
+	if plain(l[idx-1]) != "" || plain(r[idx-1]) != "" {
+		t.Fatalf("expected blank separator")
+	}
+	if len(l) != idx+1 {
+		t.Fatalf("trailing lines: %d", len(l))
+	}
+}
+
+func TestLayoutMarksSource(t *testing.T) {
+	l, r := Layout([]convo.Row{row(1, convo.Done, "en", "hi", "salut")}, pair, 41, false)
+	if !strings.HasPrefix(plain(r[0]), "●") || strings.HasPrefix(plain(l[0]), "●") {
+		t.Fatalf("l=%q r=%q", l[0], r[0])
+	}
+	if !strings.Contains(r[0], "[white::b]") {
+		t.Fatalf("source not bright: %q", r[0])
+	}
+	l, r = Layout([]convo.Row{row(1, convo.Done, "fr", "salut", "hi")}, pair, 41, false)
+	if !strings.HasPrefix(plain(l[0]), "●") || strings.HasPrefix(plain(r[0]), "●") {
+		t.Fatalf("fr: l=%q r=%q", l[0], r[0])
+	}
+}
+
+func TestLayoutCJKWidth(t *testing.T) {
+	jp := strings.Repeat("あ", 30)
+	l, r := Layout([]convo.Row{row(1, convo.Done, "ja", jp, "short")}, [2]string{"ja", "en"}, 41, false)
+	if len(l) != len(r) || len(l) < 3 {
+		t.Fatalf("len %d %d", len(l), len(r))
+	}
+	for _, ln := range append(append([]string{}, l...), r...) {
+		if w := runewidth.StringWidth(plain(ln)); w > 20 {
+			t.Fatalf("line %q is %d cells", ln, w)
+		}
+	}
+	if !strings.HasPrefix(plain(l[0]), "●") || !strings.HasPrefix(plain(r[0]), "  short") {
+		t.Fatalf("rows not aligned: %q %q", l[0], r[0])
+	}
+	if !strings.HasPrefix(plain(l[1]), "  ") {
+		t.Fatalf("no indent: %q", l[1])
+	}
+}
+
+func TestLayoutNarrow(t *testing.T) {
+	text := "日本語のテストです hello wonderful 世界"
+	for w := 0; w <= 60; w++ {
+		for _, ts := range []bool{false, true} {
+			l, r := Layout([]convo.Row{row(1, convo.Done, "fr", text, "x")}, pair, w, ts)
+			if len(l) != len(r) {
+				t.Fatalf("w=%d misaligned", w)
+			}
+			cw := (w - 1) / 2
+			// A column narrower than "● " plus one wide rune (4 cells)
+			// physically cannot hold a CJK glyph; otherwise every line fits.
+			limit := cw
+			if limit < 4 {
+				limit = 4
+			}
+			for _, ln := range append(append([]string{}, l...), r...) {
+				if got := runewidth.StringWidth(plain(ln)); got > limit {
+					t.Fatalf("w=%d ts=%v line %q is %d cells (limit %d)", w, ts, ln, got, limit)
+				}
+			}
+		}
+	}
+}
+
+func TestLayoutPendingTranslation(t *testing.T) {
+	l, r := Layout([]convo.Row{row(1, convo.Original, "fr", "salut", "")}, pair, 41, false)
+	if !strings.Contains(plain(r[0]), "…translating") {
+		t.Fatalf("%q %q", l, r)
+	}
+}
+
+func TestLayoutCancelledAndFailed(t *testing.T) {
+	_, r := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false)
+	if !strings.Contains(plain(r[0]), "cancelled") {
+		t.Fatalf("%q", r)
+	}
+	f := row(1, convo.Failed, "fr", "salut", "")
+	f.Err = "translation failed"
+	_, r = Layout([]convo.Row{f}, pair, 41, false)
+	if !strings.Contains(plain(r[0]), "translation failed") || !strings.Contains(r[0], "[red]") {
+		t.Fatalf("%q", r)
+	}
+}
+
+func TestLayoutTimestamps(t *testing.T) {
+	rows := []convo.Row{row(1, convo.Done, "fr", "salut", "hi")}
+	l, r := Layout(rows, pair, 41, false)
+	if strings.Contains(plain(l[0]), "14:02") || strings.Contains(plain(r[0]), "14:02") {
+		t.Fatal("timestamp shown when off")
+	}
+	l, r = Layout(rows, pair, 41, true)
+	if !strings.HasPrefix(plain(l[0]), "14:02 ") || !strings.HasPrefix(plain(r[0]), "14:02 ") {
+		t.Fatalf("%q %q", l[0], r[0])
+	}
+}
+
+func TestLayoutEscapesTags(t *testing.T) {
+	l, _ := Layout([]convo.Row{row(1, convo.Done, "fr", "[red]hi", "x")}, pair, 41, false)
+	if !strings.Contains(plain(l[0]), "[red]hi") {
+		t.Fatalf("%q", l[0])
+	}
+	if got := tview.TaggedStringWidth(l[0]); got != runewidth.StringWidth("● [red]hi") {
+		t.Fatalf("width %d for %q", got, l[0])
+	}
+}

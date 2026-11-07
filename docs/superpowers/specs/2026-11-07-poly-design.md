@@ -113,7 +113,7 @@ translates.
 1. **Capture:** mic → Silero VAD → Smart Turn decides the end of the
    utterance → one PCM buffer (talktome's `internal/vad` Listener does this
    and delivers whole utterances on a channel).
-2. **No row yet.** The status bar shows "transcribing (n)" instead. A row is
+2. **No row yet.** The status bar shows "working (n)" (transcriptions and translations in flight) instead. A row is
    only added once a transcript exists, so noise that turns out to be
    nothing never makes a row appear and then vanish. Rows are still placed
    in speaking order (by capture time), not completion order.

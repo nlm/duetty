@@ -4,3 +4,5 @@ models/
 third_party/
 eval/clips/
 .superpowers/
+eval/noise/
+eval/words/
