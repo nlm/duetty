@@ -154,6 +154,11 @@ else
   check "$tmp/onnxruntime.tgz" "$ORT_SUM" "onnxruntime tarball"
   tar xzf "$tmp/onnxruntime.tgz" -C "$tmp"
   install_libdir "$tmp/$ORT_DIR/lib"
+  # Keep onnxruntime's license and third-party notices next to the library
+  # (release archives redistribute it).
+  for f in LICENSE ThirdPartyNotices.txt; do
+    [ -f "$tmp/$ORT_DIR/$f" ] && install_file "$tmp/$ORT_DIR/$f" "$ORTROOT/$f"
+  done
 fi
 [ -e "$LIBDIR/libonnxruntime.so" ] || { echo "error: libonnxruntime.so missing" >&2; exit 1; }
 

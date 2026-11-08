@@ -1,5 +1,7 @@
 # duetty
 
+[![CI](https://github.com/nlm/duetty/actions/workflows/ci.yml/badge.svg)](https://github.com/nlm/duetty/actions/workflows/ci.yml)
+
 **Live two-language transcripts for face-to-face conversations, in your terminal.**
 
 Two people who don't share a language sit in front of one laptop and talk.
@@ -36,10 +38,11 @@ The name is *duet* + *tty*: two voices in conversation, in a terminal.
 
 ## Quick start
 
+Download the archive for your platform from the
+[releases page](https://github.com/nlm/duetty/releases), then:
+
 ```sh
-git clone https://github.com/nlm/duetty.git && cd duetty
-scripts/setup-models.sh            # Silero VAD, Smart Turn, onnxruntime
-go build -o duetty ./cmd/duetty
+tar xzf duetty-*-linux-amd64.tar.gz && cd duetty-*-linux-amd64
 
 export DUETTY_API_URL=https://api.scaleway.ai/<project_id>/v1
 export DUETTY_API_KEY=...            # your provider's API key
@@ -49,32 +52,54 @@ export DUETTY_API_KEY=...            # your provider's API key
 Speak, or type a sentence and press Enter. Press `?` to see the keys and
 `Ctrl+C` to quit.
 
+No API account? duetty also runs fully offline with a local Whisper server
+and Ollama: see [Running duetty offline](docs/offline.md).
+
 ## Installation
 
-### Requirements
+### Release archives
+
+Each [release](https://github.com/nlm/duetty/releases) has a self-contained
+archive for Linux x86-64, Linux arm64 and macOS on Apple silicon: the
+`duetty` binary with its models, the onnxruntime library and their licenses.
+Unpack it anywhere and keep the files together; duetty finds its models next
+to the binary. A `.sha256` file is published next to each archive.
+
+- **Linux:** needs the ALSA library (`libasound2`), present on desktop
+  distributions.
+- **macOS:** the binary is not signed. If macOS refuses to open it, run
+  `xattr -dr com.apple.quarantine .` in the unpacked folder. Allow your
+  terminal to use the microphone when asked.
+
+### From source
+
+Requirements:
 
 - Go 1.26 with cgo enabled (a C compiler)
-- Linux (x86-64 or arm64) with the ALSA development headers, or macOS on
-  Apple silicon
+- Linux (x86-64 or arm64) with the ALSA development headers
+  (`libasound2-dev`), or macOS on Apple silicon
 - `curl` for the setup scripts
-- An OpenAI-compatible API with a speech-to-text model (Whisper) and a chat
-  model
-
-### Build
 
 ```sh
-scripts/setup-models.sh            # required for microphone input
+git clone https://github.com/nlm/duetty.git && cd duetty
+scripts/setup-models.sh            # Silero VAD, Smart Turn, onnxruntime
 scripts/setup-denoise.sh           # optional: GTCRN denoiser for -denoise
-go build -o duetty ./cmd/duetty        # build in the repo root
+go build -o duetty ./cmd/duetty    # build in the repo root
 ```
 
-duetty looks for `models/` and `third_party/onnxruntime/` **next to the `duetty`
-binary only**, never in the current directory. Build into the repo root as
-shown above. If the binary lives elsewhere (for example with `go run`), pass
-`-vad-model`, `-smart-turn-model`, `-onnxruntime-lib` and
+duetty looks for `models/` and `third_party/onnxruntime/` **next to the
+`duetty` binary only**, never in the current directory. Build into the repo
+root as shown above. If the binary lives elsewhere (for example with
+`go run`), pass `-vad-model`, `-smart-turn-model`, `-onnxruntime-lib` and
 `-denoise-model` explicitly.
 
 Typed input (`-mic off`) needs none of the models.
+
+### API
+
+duetty needs an OpenAI-compatible API with a speech-to-text model (Whisper)
+and a chat model: a cloud provider such as Scaleway Generative APIs, or local
+servers ([offline guide](docs/offline.md)).
 
 ## Usage
 
@@ -115,6 +140,7 @@ languages = ["fr", "en"]
 | Setting | Where | Default |
 |---------|-------|---------|
 | API endpoint | `api_url`, `-api-url`, or env `DUETTY_API_URL` (`OPENAI_BASE_URL`) | none, required |
+| Separate endpoints | `stt_api_url`, `translate_api_url` (e.g. local servers) | `api_url` |
 | API key | env `DUETTY_API_KEY` (`OPENAI_API_KEY`), or `api_key` | none, required |
 | Languages | `languages`, `-languages` | `fr`, `en` |
 | Models | `stt_model`, `translate_model` | `whisper-large-v3`, `mistral-small-3.2-24b-instruct-2506` |
@@ -211,10 +237,22 @@ go vet ./...
 The README picture is rendered from the real UI code:
 `DUETTY_WRITE_SVG=1 go test ./internal/ui -run TestWriteREADMEScreenshot`.
 
+CI runs gofmt, `go vet` and the tests (including the model-backed ones) on
+Linux and macOS for every push and pull request.
+
+To release, push a version tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The release workflow builds the archives with `scripts/package-release.sh`
+on each platform and publishes them as a GitHub release.
+
 ## Known limitations
 
-- The microphone path has been tested only with simulated audio. Expect
-  rough edges on first real use.
+- The macOS build has not been tried on a real Mac yet; CI only builds and
+  tests it.
 - The denoiser has not been tested in a noisy café.
 - If both people speak inside one sentence that never splits, the text stays
   mixed until the end of the turn.

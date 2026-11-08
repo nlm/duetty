@@ -15,7 +15,7 @@ import (
 )
 
 // version is the duetty release version.
-const version = "0.1.0-dev"
+var version = "0.1.0-dev" // set at release build time: -ldflags "-X main.version=..."
 
 func main() {
 	cfg, err := config.Load(os.Args[1:], os.Getenv)

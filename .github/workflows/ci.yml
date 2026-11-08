@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Run the model-backed tests too (they skip when these are unset).
+      SILEROVAD_TEST_MODEL: ${{ github.workspace }}/models/silero_vad.onnx
+      SILEROVAD_TEST_ORT_LIB: ${{ github.workspace }}/third_party/onnxruntime/lib/libonnxruntime.so
+      SMART_TURN_TEST_MODEL: ${{ github.workspace }}/models/smart-turn/smart-turn-v3.2-cpu.onnx
+      SMART_TURN_TEST_ORT_LIB: ${{ github.workspace }}/third_party/onnxruntime/lib/libonnxruntime.so
+      DENOISE_TEST_MODEL: ${{ github.workspace }}/models/denoise/gtcrn_simple.onnx
+      DENOISE_TEST_ORT_LIB: ${{ github.workspace }}/third_party/onnxruntime/lib/libonnxruntime.so
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Cache models and onnxruntime
+        uses: actions/cache@v4
+        with:
+          path: |
+            models
+            third_party
+          key: models-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup-models.sh', 'scripts/setup-denoise.sh') }}
+      - name: Install models
+        run: scripts/setup-models.sh && scripts/setup-denoise.sh
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -race ./...
+      - name: Release packaging works
+        run: scripts/package-release.sh 0.0.0-ci
