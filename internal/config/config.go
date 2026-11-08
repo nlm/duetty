@@ -26,6 +26,11 @@ type Config struct {
 	STTModel       string    `toml:"stt_model"`
 	TranslateModel string    `toml:"translate_model"`
 
+	// Optional per-service endpoints, overriding APIURL (e.g. a local
+	// Whisper server and a local Ollama).
+	STTAPIURL       string `toml:"stt_api_url"`
+	TranslateAPIURL string `toml:"translate_api_url"`
+
 	TranslateContext int    `toml:"translate_context"`
 	Timestamps       bool   `toml:"timestamps"`
 	Mic              string `toml:"mic"`
@@ -64,6 +69,30 @@ type Config struct {
 
 	LogFile string `toml:"log_file"` // "" = no log
 }
+
+// STTURL is the speech-to-text endpoint: stt_api_url, else api_url.
+func (c Config) STTURL() string { return firstNonEmpty(c.STTAPIURL, c.APIURL) }
+
+// TranslateURL is the translation endpoint: translate_api_url, else api_url.
+func (c Config) TranslateURL() string { return firstNonEmpty(c.TranslateAPIURL, c.APIURL) }
+
+// NeedsKey reports whether an API key is required: false only when both
+// endpoints are on this machine (local servers usually take no key).
+func (c Config) NeedsKey() bool { return !isLocalURL(c.STTURL()) || !isLocalURL(c.TranslateURL()) }
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func isLocalURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && isLocalHost(u.Hostname())
+}
+
+func isLocalHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "::1" }
 
 // Prices returns the configured prices, or nil unless all three are set.
 func (c Config) Prices() *usage.Prices {
@@ -143,6 +172,8 @@ func newFlagSet(v *flagVars) *flag.FlagSet {
 	fs.StringVar(&v.langs, "languages", "", "two language codes, left pane first, e.g. fr,en (default fr,en)")
 	fs.StringVar(&v.langs, "langs", "", "short for -languages")
 	fs.StringVar(&t.APIURL, "api-url", t.APIURL, "OpenAI-compatible API URL (required; or env DUETTY_API_URL / OPENAI_BASE_URL), e.g. https://api.scaleway.ai/<project_id>/v1")
+	fs.StringVar(&t.STTAPIURL, "stt-api-url", t.STTAPIURL, "speech-to-text endpoint, if not api_url (e.g. a local Whisper server)")
+	fs.StringVar(&t.TranslateAPIURL, "translate-api-url", t.TranslateAPIURL, "translation endpoint, if not api_url (e.g. a local Ollama)")
 	fs.StringVar(&t.STTModel, "stt-model", t.STTModel, "speech-to-text model")
 	fs.StringVar(&t.TranslateModel, "translate-model", t.TranslateModel, "translation model")
 	fs.IntVar(&t.TranslateContext, "translate-context", t.TranslateContext, "previous sentences given to the translator as context")
@@ -230,6 +261,8 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	// Flags override, only those explicitly set.
 	over := map[string]func(){
 		"api-url":            func() { cfg.APIURL = tmp.APIURL },
+		"stt-api-url":        func() { cfg.STTAPIURL = tmp.STTAPIURL },
+		"translate-api-url":  func() { cfg.TranslateAPIURL = tmp.TranslateAPIURL },
 		"stt-model":          func() { cfg.STTModel = tmp.STTModel },
 		"translate-model":    func() { cfg.TranslateModel = tmp.TranslateModel },
 		"translate-context":  func() { cfg.TranslateContext = tmp.TranslateContext },
@@ -329,25 +362,32 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s: must be a finite number >= 0, got %g", name, *p)
 		}
 	}
-	return validateAPIURL(c.APIURL)
+	if c.STTURL() == "" || c.TranslateURL() == "" {
+		return errors.New("api_url: required: set api_url in the config file, -api-url, or DUETTY_API_URL (e.g. https://api.scaleway.ai/<project_id>/v1)")
+	}
+	for _, e := range []struct{ name, url string }{
+		{"api_url", c.APIURL}, {"stt_api_url", c.STTAPIURL}, {"translate_api_url", c.TranslateAPIURL},
+	} {
+		if e.url == "" {
+			continue
+		}
+		if err := validateAPIURL(e.url); err != nil {
+			return fmt.Errorf("%s: %w", e.name, err)
+		}
+	}
+	return nil
 }
 
 func validateAPIURL(raw string) error {
-	if raw == "" {
-		return errors.New("api_url: required: set api_url in the config file, -api-url, or DUETTY_API_URL (e.g. https://api.scaleway.ai/<project_id>/v1)")
-	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return errors.New("api_url: not a valid URL")
+		return errors.New("not a valid URL")
 	}
-	switch u.Scheme {
-	case "https":
+	switch {
+	case u.Scheme == "https":
 		return nil
-	case "http":
-		switch u.Hostname() {
-		case "localhost", "127.0.0.1", "::1":
-			return nil
-		}
+	case u.Scheme == "http" && isLocalHost(u.Hostname()):
+		return nil
 	}
-	return errors.New("api_url: must be https (http is allowed only for localhost, 127.0.0.1 or ::1)")
+	return errors.New("must be https (http is allowed only for localhost, 127.0.0.1 or ::1)")
 }

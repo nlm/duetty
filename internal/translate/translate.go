@@ -101,7 +101,9 @@ func (c *Client) Translate(ctx context.Context, text, from, to string, history [
 		return "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" { // local servers take no key
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

@@ -108,7 +108,9 @@ func (c *Client) Transcribe(ctx context.Context, wav16k []byte, language string)
 		return Result{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" { // local servers take no key
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

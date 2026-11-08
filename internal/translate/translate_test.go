@@ -190,3 +190,16 @@ func TestTranslateCountsWithoutChoices(t *testing.T) {
 		t.Errorf("totals = %+v, want in=23 out=9", tot)
 	}
 }
+
+func TestNoKeyNoAuthHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.Header["Authorization"]; ok {
+			t.Error("Authorization header sent without a key")
+		}
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Hello."}}]}`))
+	}))
+	defer srv.Close()
+	if _, err := NewClient(srv.URL, "", "m").Translate(context.Background(), "Bonjour", "fr", "en", nil); err != nil {
+		t.Fatal(err)
+	}
+}

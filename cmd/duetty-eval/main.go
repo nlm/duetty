@@ -113,7 +113,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if cfg.APIKey == "" {
+	if cfg.APIKey == "" && cfg.NeedsKey() {
 		return errors.New("no API key: set DUETTY_API_KEY (or OPENAI_API_KEY)")
 	}
 	if *floor == 0 {
@@ -231,7 +231,7 @@ func run() error {
 		}
 	}
 
-	ca := &cache{next: stt.NewClient(cfg.APIURL, cfg.APIKey, cfg.STTModel), m: map[string]*entry{}}
+	ca := &cache{next: stt.NewClient(cfg.STTURL(), cfg.APIKey, cfg.STTModel), m: map[string]*entry{}}
 	resolve := func(p prepared, pair [2]string) (stt.Resolved, error) {
 		r := stt.Resolver{T: clipT{ca, p.id, p.wav16k}, ID: langid.New(pair), Pair: pair, LogprobFloor: *floor, MaxCompression: *maxc}
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

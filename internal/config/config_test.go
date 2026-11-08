@@ -387,3 +387,25 @@ func TestValidatePreviewAndPrices(t *testing.T) {
 		}
 	}
 }
+
+func TestPerServiceEndpoints(t *testing.T) {
+	inTempDir(t)
+	c, err := Load([]string{"-stt-api-url", "http://localhost:8000/v1", "-translate-api-url", "http://127.0.0.1:11434/v1"}, noEnv)
+	if err != nil {
+		t.Fatalf("both overrides, no api_url: %v", err)
+	}
+	if c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != "http://127.0.0.1:11434/v1" || c.NeedsKey() {
+		t.Fatalf("stt %q translate %q needsKey %v", c.STTURL(), c.TranslateURL(), c.NeedsKey())
+	}
+	c, err = Load(withURL("-stt-api-url", "http://localhost:8000/v1"), noEnv)
+	if err != nil || c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != testURL || !c.NeedsKey() {
+		t.Fatalf("one override: stt %q translate %q needsKey %v err %v", c.STTURL(), c.TranslateURL(), c.NeedsKey(), err)
+	}
+	if _, err := Load([]string{"-stt-api-url", "http://localhost:8000/v1"}, noEnv); err == nil || !strings.HasPrefix(err.Error(), "api_url: required") {
+		t.Fatalf("translation endpoint missing: err = %v", err)
+	}
+	_, err = Load(withURL("-translate-api-url", "http://lan-box:11434/v1"), noEnv)
+	if err == nil || !strings.HasPrefix(err.Error(), "translate_api_url: must be https") {
+		t.Fatalf("plain http to another host: err = %v", err)
+	}
+}

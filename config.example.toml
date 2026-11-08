@@ -15,13 +15,22 @@
 # --- API -------------------------------------------------------------------
 # Any OpenAI-compatible API with a speech-to-text model and a chat model.
 
-# API endpoint. Required, no default, so your key only ever goes to a provider
-# you chose. Must be https (http is allowed for localhost only).
+# API endpoint for both services. Required unless both endpoints below are
+# set. No default, so your key only ever goes to a provider you chose.
+# Must be https (http is allowed for localhost only).
 # Environment: DUETTY_API_URL, then OPENAI_BASE_URL. (-api-url)
 api_url = "https://api.scaleway.ai/<project_id>/v1"
 
-# API key. Prefer the environment: DUETTY_API_KEY, then OPENAI_API_KEY.
-# Never commit a file that contains a key. (file only)
+# Separate endpoints for speech-to-text and translation, when they are not
+# both at api_url: e.g. a local Whisper server and a local Ollama (see
+# docs/offline.md). api_url may then be left unset. (-stt-api-url,
+# -translate-api-url)
+# stt_api_url = ""
+# translate_api_url = ""
+
+# API key. Not needed when both endpoints are on localhost. Prefer the
+# environment: DUETTY_API_KEY, then OPENAI_API_KEY. Never commit a file that
+# contains a key. (file only)
 # api_key = ""
 
 # Speech-to-text model. (-stt-model)

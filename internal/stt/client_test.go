@@ -176,3 +176,16 @@ func TestTranscribeParsesSegments(t *testing.T) {
 		t.Fatalf("got %+v %v", res.Segments, err)
 	}
 }
+
+func TestNoKeyNoAuthHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.Header["Authorization"]; ok {
+			t.Error("Authorization header sent without a key")
+		}
+		w.Write([]byte(twoSeg))
+	}))
+	defer srv.Close()
+	if _, err := NewClient(srv.URL, "", "whisper").Transcribe(context.Background(), []byte("x"), ""); err != nil {
+		t.Fatal(err)
+	}
+}
