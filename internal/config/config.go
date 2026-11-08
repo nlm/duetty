@@ -30,6 +30,10 @@ type Config struct {
 	// Whisper server and a local Ollama).
 	STTAPIURL       string `toml:"stt_api_url"`
 	TranslateAPIURL string `toml:"translate_api_url"`
+	// Optional per-service keys. api_key is sent only to api_url's own
+	// server, never to a separate endpoint elsewhere.
+	STTAPIKey       string `toml:"stt_api_key"`
+	TranslateAPIKey string `toml:"translate_api_key"`
 
 	TranslateContext int    `toml:"translate_context"`
 	Timestamps       bool   `toml:"timestamps"`
@@ -76,9 +80,60 @@ func (c Config) STTURL() string { return firstNonEmpty(c.STTAPIURL, c.APIURL) }
 // TranslateURL is the translation endpoint: translate_api_url, else api_url.
 func (c Config) TranslateURL() string { return firstNonEmpty(c.TranslateAPIURL, c.APIURL) }
 
-// NeedsKey reports whether an API key is required: false only when both
-// endpoints are on this machine (local servers usually take no key).
-func (c Config) NeedsKey() bool { return !isLocalURL(c.STTURL()) || !isLocalURL(c.TranslateURL()) }
+// STTKey is the key sent to the speech-to-text endpoint (see serviceKey).
+func (c Config) STTKey() string { return c.serviceKey(c.STTAPIURL, c.STTAPIKey) }
+
+// TranslateKey is the key sent to the translation endpoint (see serviceKey).
+func (c Config) TranslateKey() string { return c.serviceKey(c.TranslateAPIURL, c.TranslateAPIKey) }
+
+// serviceKey picks the key for one service: its own key if set; else
+// api_key, but only when the service uses api_url itself or another path on
+// the same server (same scheme, host and port). api_key is never sent to a
+// separate endpoint on another server, local or not: it was given for
+// api_url's provider.
+func (c Config) serviceKey(override, own string) string {
+	if own != "" {
+		return own
+	}
+	if override == "" || sameServer(override, c.APIURL) {
+		return c.APIKey
+	}
+	return ""
+}
+
+// CheckKeys returns an error naming the first service that has no key while
+// its endpoint is not on this machine (local servers usually take none). The
+// error never contains a key.
+func (c Config) CheckKeys() error {
+	if err := c.CheckSTTKey(); err != nil {
+		return err
+	}
+	return checkKey("translate", c.TranslateAPIURL, c.TranslateURL(), c.TranslateKey(), c.APIURL)
+}
+
+// CheckSTTKey is CheckKeys for the speech-to-text service only.
+func (c Config) CheckSTTKey() error {
+	return checkKey("stt", c.STTAPIURL, c.STTURL(), c.STTKey(), c.APIURL)
+}
+
+func checkKey(svc, override, effective, key, apiURL string) error {
+	if key != "" || isLocalURL(effective) {
+		return nil
+	}
+	if override != "" && !sameServer(override, apiURL) {
+		return fmt.Errorf("no API key for %[1]s_api_url: set %[1]s_api_key or DUETTY_%[2]s_API_KEY (api_key is only sent to api_url's server)",
+			svc, strings.ToUpper(svc))
+	}
+	return errors.New("no API key: set DUETTY_API_KEY (or OPENAI_API_KEY), or api_key in the config file")
+}
+
+// sameServer reports whether a and b have the same scheme, host and port.
+func sameServer(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	return err1 == nil && err2 == nil && b != "" &&
+		strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+}
 
 func firstNonEmpty(a, b string) string {
 	if a != "" {
@@ -256,6 +311,12 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	}
 	if cfg.APIURL == "" {
 		cfg.APIURL = firstEnv(getenv, "DUETTY_API_URL", "OPENAI_BASE_URL")
+	}
+	if cfg.STTAPIKey == "" {
+		cfg.STTAPIKey = getenv("DUETTY_STT_API_KEY")
+	}
+	if cfg.TranslateAPIKey == "" {
+		cfg.TranslateAPIKey = getenv("DUETTY_TRANSLATE_API_KEY")
 	}
 
 	// Flags override, only those explicitly set.

@@ -140,15 +140,16 @@ languages = ["fr", "en"]
 | Setting | Where | Default |
 |---------|-------|---------|
 | API endpoint | `api_url`, `-api-url`, or env `DUETTY_API_URL` (`OPENAI_BASE_URL`) | none, required |
-| Separate endpoints | `stt_api_url`, `translate_api_url` (e.g. local servers) | `api_url` |
+| Separate endpoints | `stt_api_url`, `translate_api_url` (e.g. local servers), with their own `stt_api_key`, `translate_api_key` | `api_url` |
 | API key | env `DUETTY_API_KEY` (`OPENAI_API_KEY`), or `api_key` | none, required |
 | Languages | `languages`, `-languages` | `fr`, `en` |
 | Models | `stt_model`, `translate_model` | `whisper-large-v3`, `mistral-small-3.2-24b-instruct-2506` |
 | Microphone | `mic`, `-mic` | system default; `off` for typed input only |
 | Live preview | `live_preview`, `-live-preview` | `true` |
 
-The endpoint has no default, so your key only ever goes to a provider you
-chose, and it must use `https`. Keep the key in the environment and never
+The endpoint has no default, and your key is only sent to `api_url`'s
+server, so it only ever goes to the provider you
+chose it for, and it must use `https`. Keep the key in the environment and never
 commit a file that contains one.
 
 Everything else (voice detection, end of turn, noise filters, prices) is

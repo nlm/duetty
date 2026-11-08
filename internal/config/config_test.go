@@ -394,12 +394,12 @@ func TestPerServiceEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("both overrides, no api_url: %v", err)
 	}
-	if c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != "http://127.0.0.1:11434/v1" || c.NeedsKey() {
-		t.Fatalf("stt %q translate %q needsKey %v", c.STTURL(), c.TranslateURL(), c.NeedsKey())
+	if c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != "http://127.0.0.1:11434/v1" || c.CheckKeys() != nil {
+		t.Fatalf("stt %q translate %q keys %v", c.STTURL(), c.TranslateURL(), c.CheckKeys())
 	}
 	c, err = Load(withURL("-stt-api-url", "http://localhost:8000/v1"), noEnv)
-	if err != nil || c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != testURL || !c.NeedsKey() {
-		t.Fatalf("one override: stt %q translate %q needsKey %v err %v", c.STTURL(), c.TranslateURL(), c.NeedsKey(), err)
+	if err != nil || c.STTURL() != "http://localhost:8000/v1" || c.TranslateURL() != testURL || c.CheckKeys() == nil {
+		t.Fatalf("one override: stt %q translate %q keys %v err %v", c.STTURL(), c.TranslateURL(), c.CheckKeys(), err)
 	}
 	if _, err := Load([]string{"-stt-api-url", "http://localhost:8000/v1"}, noEnv); err == nil || !strings.HasPrefix(err.Error(), "api_url: required") {
 		t.Fatalf("translation endpoint missing: err = %v", err)
@@ -407,5 +407,45 @@ func TestPerServiceEndpoints(t *testing.T) {
 	_, err = Load(withURL("-translate-api-url", "http://lan-box:11434/v1"), noEnv)
 	if err == nil || !strings.HasPrefix(err.Error(), "translate_api_url: must be https") {
 		t.Fatalf("plain http to another host: err = %v", err)
+	}
+}
+
+// api_key was given for api_url's provider: it must never reach another
+// server through stt_api_url / translate_api_url.
+func TestAPIKeyScopedToAPIURLServer(t *testing.T) {
+	inTempDir(t)
+	env := envMap(map[string]string{"DUETTY_API_KEY": "scw"})
+	c, err := Load(withURL(), env)
+	if err != nil || c.STTKey() != "scw" || c.TranslateKey() != "scw" || c.CheckKeys() != nil {
+		t.Fatalf("api_url only: %q %q %v %v", c.STTKey(), c.TranslateKey(), c.CheckKeys(), err)
+	}
+	// Same server, other path: still api_url's provider.
+	c, _ = Load(withURL("-stt-api-url", "https://api.scaleway.ai/other/v1"), env)
+	if c.STTKey() != "scw" {
+		t.Fatalf("same server: stt key %q", c.STTKey())
+	}
+	// Another provider: no key, and a clear error.
+	c, _ = Load(withURL("-stt-api-url", "https://api.other.example/v1"), env)
+	if c.STTKey() != "" || c.TranslateKey() != "scw" {
+		t.Fatalf("other provider got api_key: stt %q translate %q", c.STTKey(), c.TranslateKey())
+	}
+	if err := c.CheckKeys(); err == nil || !strings.Contains(err.Error(), "stt_api_key") || strings.Contains(err.Error(), "scw") {
+		t.Fatalf("CheckKeys = %v", err)
+	}
+	// A local server does not get it either, and needs none.
+	c, _ = Load(withURL("-translate-api-url", "http://localhost:11434/v1"), env)
+	if c.TranslateKey() != "" || c.CheckKeys() != nil {
+		t.Fatalf("local translate: key %q check %v", c.TranslateKey(), c.CheckKeys())
+	}
+	// Its own key, from the environment or the file.
+	c, _ = Load(withURL("-stt-api-url", "https://api.other.example/v1"),
+		envMap(map[string]string{"DUETTY_API_KEY": "scw", "DUETTY_STT_API_KEY": "other"}))
+	if c.STTKey() != "other" || c.TranslateKey() != "scw" || c.CheckKeys() != nil {
+		t.Fatalf("own stt key: %q %q %v", c.STTKey(), c.TranslateKey(), c.CheckKeys())
+	}
+	c, _ = Load(withURL("-translate-api-url", "https://api.other.example/v1"),
+		envMap(map[string]string{"DUETTY_API_KEY": "scw", "DUETTY_TRANSLATE_API_KEY": "tr"}))
+	if c.TranslateKey() != "tr" || c.STTKey() != "scw" {
+		t.Fatalf("own translate key: %q %q", c.TranslateKey(), c.STTKey())
 	}
 }

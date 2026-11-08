@@ -28,7 +28,13 @@ api_url = "https://api.scaleway.ai/<project_id>/v1"
 # stt_api_url = ""
 # translate_api_url = ""
 
-# API key. Not needed when both endpoints are on localhost. Prefer the
+# Keys for those endpoints. api_key is only ever sent to api_url's own server,
+# never to a separate endpoint elsewhere; local servers need no key. Prefer
+# the environment: DUETTY_STT_API_KEY, DUETTY_TRANSLATE_API_KEY. (file only)
+# stt_api_key = ""
+# translate_api_key = ""
+
+# API key for api_url. Not needed when both endpoints are on localhost. Prefer the
 # environment: DUETTY_API_KEY, then OPENAI_API_KEY. Never commit a file that
 # contains a key. (file only)
 # api_key = ""

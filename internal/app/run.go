@@ -88,8 +88,8 @@ type Deps struct {
 // Silero or onnxruntime missing, mic open failure) are returned before the UI
 // starts; the caller prints them.
 func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
-	if cfg.APIKey == "" && cfg.NeedsKey() {
-		return errors.New("no API key: set DUETTY_API_KEY (or OPENAI_API_KEY), or api_key in the config file")
+	if err := cfg.CheckKeys(); err != nil {
+		return err
 	}
 	stderr := d.Stderr
 	if stderr == nil {
@@ -134,7 +134,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 
 	resolver := d.Resolver
 	if resolver == nil {
-		sc := stt.NewClient(cfg.STTURL(), cfg.APIKey, cfg.STTModel)
+		sc := stt.NewClient(cfg.STTURL(), cfg.STTKey(), cfg.STTModel)
 		sc.SetMeter(meter)
 		resolver = &stt.Resolver{
 			T:              sc,
@@ -146,7 +146,7 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	}
 	translator := d.Translator
 	if translator == nil {
-		tc := translate.NewClient(cfg.TranslateURL(), cfg.APIKey, cfg.TranslateModel)
+		tc := translate.NewClient(cfg.TranslateURL(), cfg.TranslateKey(), cfg.TranslateModel)
 		tc.SetMeter(meter)
 		translator = tc
 	}

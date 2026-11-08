@@ -59,6 +59,12 @@ You can also mix: a local Whisper server with a cloud translator, or the other
 way round. Set the one local endpoint and leave `api_url` and your key for the
 other.
 
+Your key (`api_key` or `DUETTY_API_KEY`) is only ever sent to `api_url`'s own
+server. A separate endpoint on another server never receives it: local
+servers need no key, and another online provider gets its own key with
+`stt_api_key` / `translate_api_key` (or `DUETTY_STT_API_KEY` /
+`DUETTY_TRANSLATE_API_KEY`).
+
 ## What to expect
 
 Measured on 2026-11-08 on an 8-core CPU (AMD EPYC), no GPU, with
