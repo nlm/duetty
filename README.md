@@ -147,10 +147,10 @@ languages = ["fr", "en"]
 | Microphone | `mic`, `-mic` | system default; `off` for typed input only |
 | Live preview | `live_preview`, `-live-preview` | `true` |
 
-The endpoint has no default, and your key is only sent to `api_url`'s
-server, so it only ever goes to the provider you
-chose it for, and it must use `https`. Keep the key in the environment and never
-commit a file that contains one.
+The endpoint has no default and must use `https`. Your key is only sent to
+`api_url`'s own server, so it only ever reaches the provider you chose it
+for. Keep the key in the environment and never commit a file that contains
+one.
 
 Everything else (voice detection, end of turn, noise filters, prices) is
 listed with its default and meaning in
