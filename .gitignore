@@ -7,3 +7,5 @@ eval/clips/
 eval/noise/
 eval/words/
 /dist/
+/cmd/*/duetty*
+!/cmd/*/*.go

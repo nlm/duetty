@@ -72,6 +72,13 @@ type Config struct {
 	PriceCurrency    string   `toml:"price_currency"`
 
 	LogFile string `toml:"log_file"` // "" = no log
+
+	ContextFile     string `toml:"context_file"` // "" = no context file
+	WhisperHint     bool   `toml:"whisper_hint"`
+	Correct         bool   `toml:"correct"`
+	MarkCorrections bool   `toml:"mark_corrections"`
+	// PrintWhisperHint is flag-only: print the Whisper hints and exit.
+	PrintWhisperHint bool `toml:"-"`
 }
 
 // STTURL is the speech-to-text endpoint: stt_api_url, else api_url.
@@ -200,6 +207,9 @@ func Defaults() Config {
 		NoiseMaxCompression:   2.4,
 		LivePreview:           true,
 		LivePreviewIntervalMS: 1000,
+		WhisperHint:           false,
+		Correct:               true,
+		MarkCorrections:       true,
 	}
 }
 
@@ -245,6 +255,11 @@ func newFlagSet(v *flagVars) *flag.FlagSet {
 	fs.StringVar(&t.DenoiseModel, "denoise-model", t.DenoiseModel, "path to the denoise model")
 	fs.BoolVar(&t.LivePreview, "live-preview", t.LivePreview, "show provisional text and translation while speaking; -live-preview=false turns it off (it re-sends audio, raising Whisper cost)")
 	fs.StringVar(&t.LogFile, "log-file", t.LogFile, "write a timings/errors log (never conversation text) to this file")
+	fs.StringVar(&t.ContextFile, "context", t.ContextFile, "path to a context file (Markdown) describing the conversation (people, terms), sent with every translation")
+	fs.BoolVar(&t.WhisperHint, "whisper-hint", t.WhisperHint, "send per-language hints from the context file to Whisper; -whisper-hint=false turns it off")
+	fs.BoolVar(&t.Correct, "correct", t.Correct, "fix misheard words in the speaker's text (uses the context file if given); -correct=false translates the text as heard")
+	fs.BoolVar(&t.MarkCorrections, "mark-corrections", t.MarkCorrections, "show corrected words in blue; -mark-corrections=false turns it off")
+	fs.BoolVar(&t.PrintWhisperHint, "print-whisper-hint", t.PrintWhisperHint, "print the Whisper hints for -context and exit")
 	return fs
 }
 
@@ -340,6 +355,11 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		"denoise-model":      func() { cfg.DenoiseModel = tmp.DenoiseModel },
 		"live-preview":       func() { cfg.LivePreview = tmp.LivePreview },
 		"log-file":           func() { cfg.LogFile = tmp.LogFile },
+		"context":            func() { cfg.ContextFile = tmp.ContextFile },
+		"whisper-hint":       func() { cfg.WhisperHint = tmp.WhisperHint },
+		"correct":            func() { cfg.Correct = tmp.Correct },
+		"mark-corrections":   func() { cfg.MarkCorrections = tmp.MarkCorrections },
+		"print-whisper-hint": func() { cfg.PrintWhisperHint = tmp.PrintWhisperHint },
 	}
 	for name, apply := range over {
 		if set[name] {

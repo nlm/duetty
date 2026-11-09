@@ -52,8 +52,8 @@ func (fakeResolver) DetectTyped(string) string { return "fr" }
 
 type fakeTranslator struct{}
 
-func (fakeTranslator) Translate(ctx context.Context, text, from, to string, h []translate.Pair) (string, error) {
-	return marker + " (translated)", nil
+func (fakeTranslator) Translate(ctx context.Context, req translate.Request) (translate.Result, error) {
+	return translate.Result{Translation: marker + " (translated)"}, nil
 }
 
 // fakeDetector reports speech starting on the first chunk and ending on the
@@ -369,9 +369,9 @@ func (u *blockingUI) callCount() int {
 // gateTranslator returns only once gate is closed.
 type gateTranslator struct{ gate chan struct{} }
 
-func (g gateTranslator) Translate(ctx context.Context, text, from, to string, h []translate.Pair) (string, error) {
+func (g gateTranslator) Translate(ctx context.Context, req translate.Request) (translate.Result, error) {
 	<-g.gate
-	return "done", nil
+	return translate.Result{Translation: "done"}, nil
 }
 
 // An older rows snapshot delivered late must not overwrite a newer one: the
@@ -866,6 +866,92 @@ func TestRefreshLogOutcome(t *testing.T) {
 		}
 		if strings.Contains(got, marker) {
 			t.Errorf("log leaks text: %q", got)
+		}
+	}
+}
+
+func TestRunMissingContextFile(t *testing.T) {
+	cfg := testConfig()
+	cfg.Mic = "off"
+	cfg.ContextFile = "nope.md"
+	u := newFakeUI()
+	u.manual = true
+	err := Run(context.Background(), cfg, Deps{
+		Resolver: fakeResolver{}, Translator: fakeTranslator{}, UI: u,
+		LogSink: &bufSink{}, Stderr: io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "context file") {
+		t.Fatalf("want context file error, got %v", err)
+	}
+	if strings.Count(err.Error(), "context file") != 1 {
+		t.Errorf("prefix repeated: %v", err)
+	}
+}
+
+// correctRecorder records the Correct flag of each request.
+type correctRecorder struct {
+	mu   sync.Mutex
+	seen []bool
+}
+
+func (c *correctRecorder) Translate(ctx context.Context, req translate.Request) (translate.Result, error) {
+	c.mu.Lock()
+	c.seen = append(c.seen, req.Correct)
+	c.mu.Unlock()
+	return translate.Result{Translation: "t"}, nil
+}
+
+func runAudioTurn(t *testing.T, correct bool) []bool {
+	t.Helper()
+	cfg := testConfig()
+	cfg.Correct = correct
+	chunks := make(chan []byte, 8)
+	loud := bytes.Repeat([]byte{0x00, 0x40}, 2048)
+	for i := 0; i < 6; i++ {
+		chunks <- loud
+	}
+	close(chunks)
+	rec := &correctRecorder{}
+	u := newFakeUI()
+	u.wantDone = 2
+	err := Run(context.Background(), cfg, Deps{
+		Resolver: fakeResolver{}, Translator: rec, UI: u,
+		LogSink: &bufSink{}, Stderr: io.Discard,
+		Audio: &Audio{Chunks: chunks, Detector: &fakeDetector{},
+			Probs: func(pcm []byte) ([]float32, error) {
+				p := make([]float32, len(pcm)/2/3/512)
+				for i := range p {
+					p[i] = 0.9
+				}
+				return p, nil
+			}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return append([]bool(nil), rec.seen...)
+}
+
+func TestRunSetsCorrect(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		seen := runAudioTurn(t, want)
+		any := false
+		for _, c := range seen {
+			if c == want {
+				any = true
+			}
+		}
+		if !any {
+			t.Fatalf("correct=%v: no request had Correct=%v (seen %v)", want, want, seen)
+		}
+		if !want {
+			for _, c := range seen {
+				if c {
+					t.Fatalf("Correct leaked: %v", seen)
+				}
+			}
 		}
 	}
 }

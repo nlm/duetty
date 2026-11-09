@@ -29,6 +29,11 @@ The name is *duet* + *tty*: two voices in conversation, in a terminal.
   transcribes the audio again in each of your languages.
 - **Noise rejection.** Coughs, clicks and background chatter are filtered
   out before and after transcription.
+- **Live correction.** Words Whisper misheard are fixed in the speaker's pane
+  (changed words in blue) before translation. Each fix is checked: it must
+  sound like what was heard, so a sentence is never rephrased.
+- **Context file.** Describe the people and terms of the conversation, and
+  duetty spells and translates them your way. See [Context file](#context-file).
 - **Cost counter.** The status bar counts tokens and audio seconds for the
   session. Add your prices and it shows a cost estimate too.
 - **Private by default.** No audio or text is written to disk, and the
@@ -167,6 +172,21 @@ The status bar always shows a session counter, such as
 when all three `price_*` keys are set. duetty ships no default prices;
 `config.example.toml` lists Scaleway's figures for reference.
 
+### Context file
+
+Give duetty a Markdown file about the conversation, and it corrects words
+Whisper misheard, such as names and brands:
+
+```sh
+duetty -languages fr,en -context docs/context.example.md
+```
+
+Correction is on by default and also works without a file, but it knows no
+names then. Corrections show in blue, and typed text is never corrected.
+`-correct=false` translates exactly what was heard. The file is sent with
+every translation, so keep it short. Format, switches, Whisper hints and a
+prompt that builds the file for you: [`docs/context.md`](docs/context.md).
+
 ## How it works
 
 ```
@@ -182,8 +202,11 @@ mic ─▶ Silero VAD ─▶ Smart Turn ─▶ Whisper ─▶ language check ─
    language. duetty checks that the language is one of your two and that the
    text matches it. If not, it transcribes again in each of your languages
    and keeps the better result. Low-confidence results are dropped as noise.
-4. **Translation.** A chat model translates each sentence, using the last
-   few sentences as context.
+4. **Correction and translation.** A chat model fixes misheard words and
+   translates each sentence, using the context file and the last few
+   sentences as context. duetty checks each fix word by word and keeps only
+   those that sound like what was heard. If it drops one, it translates the
+   sentence again so the translation matches what is shown.
 5. **Live preview.** While the turn is still going, duetty re-sends the
    recording and shows the provisional text. When Whisper's output shows
    that a sentence is finished and a new one has started, that sentence is
@@ -201,7 +224,10 @@ mic ─▶ Silero VAD ─▶ Smart Turn ─▶ Whisper ─▶ language check ─
 ## Evaluation
 
 `duetty-eval` runs recorded clips through the same pipeline as the app and
-reports language-pick accuracy and noise rejection against your API.
+reports language-pick accuracy and noise rejection against your API. Add
+`-correct` to check that correction never rephrases a sentence heard right and
+to measure its delay, and `-context FILE` to run everything with a context
+file and its Whisper hints.
 
 ```sh
 go build -o duetty-eval ./cmd/duetty-eval

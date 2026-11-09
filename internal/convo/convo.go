@@ -3,6 +3,7 @@
 package convo
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -55,8 +56,12 @@ type Row struct {
 	Status                Status
 	Lang                  string // source language
 	Original, Translation string
-	Err                   string // short, user-facing, no secrets
-	Stale                 bool   // Live only: Translation was made for older text or another language
+	// Corrected is the text to show in place of Original when not "": the
+	// translation step's correction of what was heard. Original stays the
+	// heard text, which all live and staleness logic keeps using.
+	Corrected string
+	Err       string // short, user-facing, no secrets
+	Stale     bool   // Live only: Translation was made for older text or another language
 }
 
 // Resolver is satisfied by *stt.Resolver.
@@ -69,6 +74,7 @@ type Resolver interface {
 type entry struct {
 	Row
 	cancel context.CancelFunc // cancels the request in flight; nil when idle
+	typed  bool               // typed by the user: never corrected
 
 	// Live entries only.
 	liveID    LiveID
@@ -88,6 +94,7 @@ type Log struct {
 	r        Resolver
 	tr       translate.Translator
 	contextN int
+	correct  bool // ask the translation step to correct heard text; guarded by mu
 	onChange func()
 	base     context.Context
 	timeout  time.Duration
@@ -118,6 +125,14 @@ func New(pair [2]string, r Resolver, tr translate.Translator, contextN int, onCh
 		base: context.Background(), timeout: RequestTimeout,
 		live: map[LiveID]*entry{},
 	}
+}
+
+// SetCorrect turns correction of heard text on or off (default off). Call it
+// before use; typed rows are never corrected.
+func (l *Log) SetCorrect(on bool) {
+	l.mu.Lock()
+	l.correct = on
+	l.mu.Unlock()
 }
 
 // add appends a new entry with the next Seq. Caller holds l.mu.
@@ -177,7 +192,7 @@ func (l *Log) SubmitText(text string) {
 	}
 	lang := l.r.DetectTyped(text)
 	l.mu.Lock()
-	e := &entry{Row: Row{Status: Original, Lang: lang, Original: text}}
+	e := &entry{Row: Row{Status: Original, Lang: lang, Original: text}, typed: true}
 	l.add(e)
 	l.startTranslation(e) // unlocks
 	l.onChange()
@@ -190,15 +205,15 @@ func (l *Log) startTranslation(e *entry) {
 	history := l.history(e.Seq)
 	ctx, cancel := context.WithTimeout(l.base, l.timeout)
 	e.cancel = cancel
-	text := e.Original
+	text, correct := e.Original, l.correct && !e.typed
 	l.wg.Add(1)
 	l.mu.Unlock()
 
 	go func() {
 		defer l.wg.Done()
 		defer cancel()
-		out, err := l.tr.Translate(ctx, text, from, to, history)
-		l.translated(e, out, err)
+		res, err := l.tr.Translate(ctx, translate.Request{Text: text, From: from, To: to, History: history, Correct: correct})
+		l.translated(e, res, err)
 	}()
 }
 
@@ -210,14 +225,14 @@ func (l *Log) direction(lang string) (from, to string) {
 	return lang, l.pair[1]
 }
 
-// history returns the last contextN Done rows before seq, oldest first.
-// Caller holds l.mu.
+// history returns the last contextN Done rows before seq, oldest first,
+// with the corrected text when there is one. Caller holds l.mu.
 func (l *Log) history(seq uint64) []translate.Pair {
 	var h []translate.Pair
 	for i := len(l.rows) - 1; i >= 0 && len(h) < l.contextN; i-- {
 		e := l.rows[i]
 		if e.Seq < seq && e.Status == Done {
-			h = append(h, translate.Pair{Lang: e.Lang, Original: e.Original, Translation: e.Translation})
+			h = append(h, translate.Pair{Lang: e.Lang, Original: cmp.Or(e.Corrected, e.Original), Translation: e.Translation})
 		}
 	}
 	for i, j := 0, len(h)-1; i < j; i, j = i+1, j-1 {
@@ -227,7 +242,7 @@ func (l *Log) history(seq uint64) []translate.Pair {
 }
 
 // translated applies a Translate result unless the row was cancelled.
-func (l *Log) translated(e *entry, out string, err error) {
+func (l *Log) translated(e *entry, res translate.Result, err error) {
 	l.mu.Lock()
 	if e.Status != Original {
 		l.mu.Unlock()
@@ -237,10 +252,19 @@ func (l *Log) translated(e *entry, out string, err error) {
 	if err != nil {
 		e.Status, e.Err = Failed, "translation failed: "+ShortError(err)
 	} else {
-		e.Status, e.Translation = Done, out
+		e.Status, e.Translation = Done, res.Translation
+		e.Corrected = correction(res.Corrected, e.Original)
 	}
 	l.mu.Unlock()
 	l.onChange()
+}
+
+// correction returns corrected, or "" when it equals the heard text.
+func correction(corrected, heard string) string {
+	if corrected == heard {
+		return ""
+	}
+	return corrected
 }
 
 // remove drops e from the log and marks it so late results are ignored.
@@ -355,6 +379,9 @@ func (l *Log) UpdateLive(id LiveID, lang, text string) {
 	}
 	e.Lang, e.Original = lang, text
 	e.Stale = liveStale(e)
+	if e.Stale {
+		e.Corrected = "" // made for older text
+	}
 	l.maybeTranslateLive(e)
 	l.mu.Unlock()
 	l.onChange()
@@ -376,20 +403,21 @@ func (l *Log) maybeTranslateLive(e *entry) {
 	lang, text, gen := e.Lang, e.Original, e.liveGen
 	from, to := l.direction(lang)
 	history := l.history(e.Seq)
+	correct := l.correct
 	ctx, cancel := context.WithTimeout(l.base, l.timeout)
 	e.liveBusy, e.sentLang, e.sentText, e.liveStop = true, lang, text, cancel
 	l.wg.Add(1)
 	go func() {
 		defer l.wg.Done()
 		defer cancel()
-		out, err := l.tr.Translate(ctx, text, from, to, history)
-		l.liveTranslated(e, gen, lang, text, out, err)
+		res, err := l.tr.Translate(ctx, translate.Request{Text: text, From: from, To: to, History: history, Correct: correct})
+		l.liveTranslated(e, gen, lang, text, res, err)
 	}()
 }
 
 // liveTranslated applies a live translation result while e is still Live,
 // not finishing and not committed since, then sends any newer text.
-func (l *Log) liveTranslated(e *entry, gen uint64, lang, text, out string, err error) {
+func (l *Log) liveTranslated(e *entry, gen uint64, lang, text string, res translate.Result, err error) {
 	l.mu.Lock()
 	e.liveBusy, e.liveStop = false, nil
 	if e.Status != Live || e.finishing {
@@ -397,8 +425,12 @@ func (l *Log) liveTranslated(e *entry, gen uint64, lang, text, out string, err e
 		return
 	}
 	if err == nil && gen == e.liveGen {
-		e.Translation, e.transLang, e.transText = out, lang, text
+		e.Translation, e.transLang, e.transText = res.Translation, lang, text
+		e.Corrected = correction(res.Corrected, text)
 		e.Stale = liveStale(e)
+		if e.Stale {
+			e.Corrected = "" // made for older text
+		}
 	}
 	l.maybeTranslateLive(e)
 	l.mu.Unlock()
@@ -420,7 +452,7 @@ func (l *Log) CommitLive(id LiveID, lang, text string) {
 	l.rows = slices.Delete(l.rows, i, i+1)
 	l.rows = slices.Insert(l.rows, i, n) // n keeps e's Seq, so it goes where e was
 	l.add(e)
-	e.Original, e.Translation, e.Stale = "", "", false
+	e.Original, e.Translation, e.Corrected, e.Stale = "", "", "", false
 	e.sentLang, e.sentText, e.transLang, e.transText = "", "", "", ""
 	e.liveGen++
 	l.startTranslation(n) // unlocks
@@ -461,7 +493,7 @@ func (l *Log) finished(e *entry, res stt.Resolved, err error) {
 	}
 	delete(l.live, e.liveID)
 	e.cancel = nil // a live translation still in flight is discarded on return
-	e.Translation, e.Stale = "", false
+	e.Translation, e.Corrected, e.Stale = "", "", false
 	switch {
 	case errors.Is(err, stt.ErrNoise):
 		l.remove(e)

@@ -58,24 +58,26 @@ func (f *fakeResolver) ResolveLocked(ctx context.Context, wav []byte, lang strin
 func (f *fakeResolver) DetectTyped(string) string { return f.typed }
 
 type trReply struct {
-	text string
-	err  error
+	text      string
+	corrected string // Result.Corrected
+	err       error
 }
 
 type trCall struct {
 	ctx            context.Context
 	text, from, to string
 	history        []translate.Pair
+	correct        bool
 	reply          chan trReply
 }
 
 type fakeTranslator struct{ calls chan trCall }
 
-func (f *fakeTranslator) Translate(ctx context.Context, text, from, to string, history []translate.Pair) (string, error) {
-	c := trCall{ctx: ctx, text: text, from: from, to: to, history: history, reply: make(chan trReply, 1)}
+func (f *fakeTranslator) Translate(ctx context.Context, req translate.Request) (translate.Result, error) {
+	c := trCall{ctx: ctx, text: req.Text, from: req.From, to: req.To, history: req.History, correct: req.Correct, reply: make(chan trReply, 1)}
 	f.calls <- c
 	r := <-c.reply
-	return r.text, r.err
+	return translate.Result{Translation: r.text, Corrected: r.corrected}, r.err
 }
 
 type harness struct {
@@ -502,5 +504,80 @@ func TestStatusString(t *testing.T) {
 		if s.String() != want {
 			t.Errorf("%d = %q", s, s.String())
 		}
+	}
+}
+
+// ---- correction ----
+
+func TestAudioRowCorrected(t *testing.T) {
+	h := newHarness(t, 0)
+	h.log.SetCorrect(true)
+	h.log.SubmitAudio([]byte("A"))
+	recv(t, h.res.calls).reply <- resolved("en", "scale way rocks")
+	c := recv(t, h.tr.calls)
+	if !c.correct {
+		t.Error("audio row request must ask for correction")
+	}
+	c.reply <- trReply{text: "Scaleway déchire", corrected: "Scaleway rocks"}
+	rows := h.waitFor("done", func(r []Row) bool { return len(r) == 1 && r[0].Status == Done })
+	if rows[0].Original != "scale way rocks" || rows[0].Corrected != "Scaleway rocks" {
+		t.Errorf("row = %+v", rows[0])
+	}
+}
+
+func TestTypedNotCorrected(t *testing.T) {
+	h := newHarness(t, 0)
+	h.log.SetCorrect(true)
+	h.log.SubmitText("hello")
+	c := recv(t, h.tr.calls)
+	if c.correct {
+		t.Error("typed row request must not ask for correction")
+	}
+	c.reply <- trReply{text: "bonjour"}
+	rows := h.waitFor("done", func(r []Row) bool { return len(r) == 1 && r[0].Status == Done })
+	if rows[0].Corrected != "" {
+		t.Errorf("Corrected = %q want empty", rows[0].Corrected)
+	}
+}
+
+func TestCorrectOffSendsPlain(t *testing.T) {
+	h := newHarness(t, 0)
+	h.log.SetCorrect(false)
+	h.log.SubmitAudio([]byte("A"))
+	recv(t, h.res.calls).reply <- resolved("en", "scale way rocks")
+	c := recv(t, h.tr.calls)
+	if c.correct {
+		t.Error("request must not ask for correction when it is off")
+	}
+	c.reply <- trReply{text: "x"}
+	h.waitFor("done", func(r []Row) bool { return len(r) == 1 && r[0].Status == Done })
+}
+
+func TestHistoryUsesCorrected(t *testing.T) {
+	h := newHarness(t, 2)
+	h.log.SetCorrect(true)
+	h.log.SubmitAudio([]byte("A"))
+	recv(t, h.res.calls).reply <- resolved("en", "scale way rocks")
+	recv(t, h.tr.calls).reply <- trReply{text: "Scaleway déchire", corrected: "Scaleway rocks"}
+	h.waitFor("first done", func(r []Row) bool { return len(r) == 1 && r[0].Status == Done })
+	h.log.SubmitAudio([]byte("B"))
+	recv(t, h.res.calls).reply <- resolved("en", "indeed")
+	c := recv(t, h.tr.calls)
+	if len(c.history) != 1 || c.history[0].Original != "Scaleway rocks" {
+		t.Errorf("history = %+v want corrected text", c.history)
+	}
+	c.reply <- trReply{text: "en effet"}
+	h.waitFor("second done", func(r []Row) bool { return len(r) == 2 && r[1].Status == Done })
+}
+
+func TestCorrectedEqualToOriginalIgnored(t *testing.T) {
+	h := newHarness(t, 0)
+	h.log.SetCorrect(true)
+	h.log.SubmitAudio([]byte("A"))
+	recv(t, h.res.calls).reply <- resolved("en", "hello there")
+	recv(t, h.tr.calls).reply <- trReply{text: "salut", corrected: "hello there"}
+	rows := h.waitFor("done", func(r []Row) bool { return len(r) == 1 && r[0].Status == Done })
+	if rows[0].Corrected != "" {
+		t.Errorf("Corrected = %q want empty when equal to the heard text", rows[0].Corrected)
 	}
 }

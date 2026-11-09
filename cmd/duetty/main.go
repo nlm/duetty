@@ -35,6 +35,14 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	if cfg.PrintWhisperHint {
+		if err := app.PrintWhisperHints(ctx, cfg, os.Stdout); err != nil {
+			stop()
+			fmt.Fprintf(os.Stderr, "duetty: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := app.Run(ctx, cfg, app.Deps{}); err != nil {
 		stop()
 		fmt.Fprintf(os.Stderr, "duetty: %v\n", err)

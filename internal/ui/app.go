@@ -19,8 +19,9 @@ const meterCells = 8
 // (including from inside the event loop): they store the latest value and
 // signal a single coalescing redraw goroutine.
 type App struct {
-	pair       [2]string
-	timestamps bool
+	pair            [2]string
+	timestamps      bool
+	markCorrections bool
 
 	app              *tview.Application
 	pages            *tview.Pages
@@ -84,6 +85,10 @@ func useTerminalColors() {
 	b.BottomLeftFocus, b.BottomRightFocus = b.BottomLeft, b.BottomRight
 	b.HorizontalFocus, b.VerticalFocus = b.Horizontal, b.Vertical
 }
+
+// SetMarkCorrections turns the blue marking of corrected words on or off;
+// call it before Run.
+func (a *App) SetMarkCorrections(on bool) { a.markCorrections = on }
 
 // New builds the UI for a language pair.
 func New(pair [2]string, timestamps bool) *App {
@@ -297,7 +302,7 @@ func (a *App) refill() {
 	a.mu.Lock()
 	rows := a.rows
 	a.mu.Unlock()
-	l, r := Layout(rows, a.pair, a.width, a.timestamps)
+	l, r := Layout(rows, a.pair, a.width, a.timestamps, a.markCorrections)
 	a.nLines = len(l)
 	a.bodyL.SetText(strings.Join(l, "\n"))
 	a.bodyR.SetText(strings.Join(r, "\n"))

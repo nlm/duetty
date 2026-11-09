@@ -59,3 +59,14 @@ func TestMeterSetOnChange(t *testing.T) {
 	var nilM *Meter
 	nilM.SetOnChange(func() {})
 }
+
+func TestAddCached(t *testing.T) {
+	m := NewMeter(nil)
+	m.AddCached(7)
+	m.AddCached(3)
+	if got := m.Totals().CachedTokens; got != 10 {
+		t.Errorf("cached = %d", got)
+	}
+	var nm *Meter
+	nm.AddCached(1) // must not panic
+}

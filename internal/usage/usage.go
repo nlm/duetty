@@ -12,6 +12,7 @@ type Totals struct {
 	AudioSeconds float64
 	InTokens     int64
 	OutTokens    int64
+	CachedTokens int64 // input tokens served from the provider's prompt cache
 }
 
 // Meter accumulates usage. All methods are safe for concurrent use and on a nil *Meter.
@@ -45,6 +46,17 @@ func (m *Meter) AddTokens(in, out int64) {
 	m.mu.Lock()
 	m.totals.InTokens += in
 	m.totals.OutTokens += out
+	m.mu.Unlock()
+	m.notify()
+}
+
+// AddCached adds n input tokens that were served from the prompt cache.
+func (m *Meter) AddCached(n int64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.totals.CachedTokens += n
 	m.mu.Unlock()
 	m.notify()
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/nlm/duetty/internal/audioio"
 	"github.com/nlm/duetty/internal/config"
 	"github.com/nlm/duetty/internal/convo"
+	"github.com/nlm/duetty/internal/ctxfile"
 	"github.com/nlm/duetty/internal/denoise"
 	"github.com/nlm/duetty/internal/langid"
 	"github.com/nlm/duetty/internal/live"
@@ -132,9 +133,24 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	meter.SetOnChange(up.push)
 	up.meter = meter
 
+	// Context file: always loaded when set, so a bad path fails at startup.
+	var cf ctxfile.File
+	if cfg.ContextFile != "" {
+		var lerr error
+		cf, lerr = ctxfile.Load(cfg.ContextFile)
+		if lerr != nil {
+			return lerr
+		}
+		if n := cf.ApproxTokens(); n > ctxfile.WarnTokens {
+			log.Warnf("context file is large (~%d tokens), sent with every translation", n)
+		}
+	}
+	var notices []string
+
 	resolver := d.Resolver
+	var sc *stt.Client
 	if resolver == nil {
-		sc := stt.NewClient(cfg.STTURL(), cfg.STTKey(), cfg.STTModel)
+		sc = stt.NewClient(cfg.STTURL(), cfg.STTKey(), cfg.STTModel)
 		sc.SetMeter(meter)
 		resolver = &stt.Resolver{
 			T:              sc,
@@ -148,6 +164,22 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	if translator == nil {
 		tc := translate.NewClient(cfg.TranslateURL(), cfg.TranslateKey(), cfg.TranslateModel)
 		tc.SetMeter(meter)
+		if cfg.ContextFile != "" {
+			tc.SetContext(cf.Body)
+			log.Info("context file loaded (~%d tokens)", cf.ApproxTokens())
+			if cfg.WhisperHint && sc != nil {
+				hints, generated, herr := ResolveHints(ctx, cf, pair, tc)
+				if herr != nil {
+					notices = append(notices, "whisper hint off: generation failed")
+					log.Warnf("whisper hint off: %s", convo.ShortError(herr))
+				} else {
+					sc.SetHints(hints)
+					log.Info("whisper hints: %d words (%s), %d words (%s), generated=%v",
+						len(strings.Fields(hints[pair[0]])), pair[0],
+						len(strings.Fields(hints[pair[1]])), pair[1], generated)
+				}
+			}
+		}
 		translator = tc
 	}
 
@@ -180,10 +212,13 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 
 	u := d.UI
 	if u == nil {
-		u = ui.New(pair, cfg.Timestamps)
+		app := ui.New(pair, cfg.Timestamps)
+		app.SetMarkCorrections(cfg.MarkCorrections)
+		u = app
 	}
 	rp := &rowPusher{ui: u, st: st, outcomes: &outcomeLog{seen: map[uint64]convo.Status{}}}
 	cl := convo.New(pair, resolver, translator, cfg.TranslateContext, rp.changed)
+	cl.SetCorrect(cfg.Correct)
 	rp.log = cl
 	st.ui, st.log = u, cl
 	up.mu.Lock()
@@ -331,8 +366,11 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	}()
 	// Startup warnings went to stderr, which the UI is about to cover: show
 	// them briefly in the status bar too.
-	if audio != nil && len(audio.Notices) > 0 {
-		u.SetNotice(strings.Join(audio.Notices, " · "))
+	if audio != nil {
+		notices = append(notices, audio.Notices...)
+	}
+	if len(notices) > 0 {
+		u.SetNotice(strings.Join(notices, " · "))
 		t := time.AfterFunc(noticeShown, func() { u.SetNotice("") })
 		defer t.Stop()
 	}
@@ -341,6 +379,9 @@ func Run(ctx context.Context, cfg config.Config, d Deps) (err error) {
 	log.SetSink(runSink) // UI owns the terminal from here on
 	runErr := u.Run()
 	log.Info("shutting down")
+	tot := meter.Totals()
+	log.Info("session usage: audio %.1f s, input %d tokens (%d cached), output %d tokens",
+		tot.AudioSeconds, tot.InTokens, tot.CachedTokens, tot.OutTokens)
 
 	cancel()
 	cl.CancelPending()

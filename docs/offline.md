@@ -49,6 +49,7 @@ stt_api_url       = "http://localhost:8000/v1"
 stt_model         = "Systran/faster-whisper-small"
 translate_api_url = "http://localhost:11434/v1"
 translate_model   = "qwen2.5:3b"
+# correct         = false   # if text gets rewritten or slow, see below
 ```
 
 `api_url` and the API key are not needed when both endpoints are on
@@ -83,6 +84,12 @@ Measured on 2026-11-08 on an 8-core CPU (AMD EPYC), no GPU, with
   "Ça sonne parfait, voir à huit." A larger model fixes most of this.
 - **Disk:** about 3 GB for the speaches image and 1 GB for the small Whisper
   model; about 8.5 GB for the Ollama image and 2 GB for `qwen2.5:3b`.
+
+Correction (`correct`, on by default) was not measured with small local models
+such as `qwen2.5:3b`. It may rewrite sentences, or double the latency through
+fallbacks when the model does not return the JSON it asks for. If text gets
+rewritten or slow, turn it off with `-correct=false`, or uncomment `correct = false`
+in the config above.
 
 The status bar still counts tokens and audio seconds. Without `price_*` keys,
 no cost is shown.

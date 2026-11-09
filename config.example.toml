@@ -167,6 +167,27 @@ api_url = "https://api.scaleway.ai/<project_id>/v1"
 # as noise. (file only)
 # noise_max_compression = 2.4
 
+# --- Context -----------------------------------------------------------------
+
+# Markdown file describing the conversation: people, brands, terms. It is sent
+# with every translation, so keep it short (duetty warns above ~2000 tokens).
+# "" = none. See docs/context.md. (-context)
+# context_file = ""
+
+# Send a per-language hint to Whisper, from the file's "Whisper hint" section
+# or generated at startup. Needs context_file. Off by default: in the eval a
+# hint made Whisper drop one badly recorded short clip (see eval/README.md).
+# Turn it on if Whisper keeps mishearing unusual names. (-whisper-hint)
+# whisper_hint = false
+
+# Fix words Whisper misheard in the speaker's pane, never rephrasing. Works
+# without a context file; typed text is never corrected. false = translate the
+# text as heard. (-correct)
+# correct = true
+
+# Show the corrected words in blue. (-mark-corrections)
+# mark_corrections = true
+
 # --- Logging -----------------------------------------------------------------
 
 # Log file for timings, states and errors. Never contains conversation text or

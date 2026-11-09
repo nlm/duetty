@@ -1,6 +1,11 @@
 // Command duetty-eval measures duetty's language pick and noise rejection against
 // the real API: clips go through Silero + trim and then stt.Resolver, once per
 // language pair. Transcripts are printed to stdout only, never stored.
+//
+// -context PATH loads a context file: its hints (generated when absent) are set
+// on the Whisper client, so every pass of the run uses them. -correct also
+// translates each resolved sentence clip with and without correction and
+// reports rephrasings and median latency.
 package main
 
 import (
@@ -19,10 +24,12 @@ import (
 	"github.com/nlm/duetty/internal/app"
 	"github.com/nlm/duetty/internal/audioio"
 	"github.com/nlm/duetty/internal/config"
+	"github.com/nlm/duetty/internal/ctxfile"
 	"github.com/nlm/duetty/internal/denoise"
 	"github.com/nlm/duetty/internal/langid"
 	"github.com/nlm/duetty/internal/silerovad"
 	"github.com/nlm/duetty/internal/stt"
+	"github.com/nlm/duetty/internal/translate"
 	"github.com/nlm/duetty/internal/trim"
 )
 
@@ -100,6 +107,8 @@ func run() error {
 	cfgPath := fs.String("config", "", "config file")
 	apiURL := fs.String("api-url", "", "OpenAI-compatible API URL (default: config)")
 	dn := fs.Bool("denoise", false, "run every clip through the local denoiser first (as -denoise in duetty)")
+	correctF := fs.Bool("correct", false, "translate each resolved sentence clip with and without correction; report rephrasings and latency")
+	ctxPath := fs.String("context", "", "context file: body goes to the translator, hints (generated if absent) to Whisper for every pass")
 	fs.Parse(os.Args[1:])
 
 	var cargs []string
@@ -231,7 +240,42 @@ func run() error {
 		}
 	}
 
-	ca := &cache{next: stt.NewClient(cfg.STTURL(), cfg.STTKey(), cfg.STTModel), m: map[string]*entry{}}
+	sc := stt.NewClient(cfg.STTURL(), cfg.STTKey(), cfg.STTModel)
+	var tc *translate.Client
+	if *correctF || *ctxPath != "" {
+		if err := cfg.CheckKeys(); err != nil {
+			return err
+		}
+		tc = translate.NewClient(cfg.TranslateURL(), cfg.TranslateKey(), cfg.TranslateModel)
+	}
+	if *ctxPath != "" {
+		cf, err := ctxfile.Load(*ctxPath)
+		if err != nil {
+			return err
+		}
+		tc.SetContext(cf.Body)
+		// Hints are set before any Whisper pass and apply to the whole run:
+		// merge the pairs' hints, the first pair covering a language wins.
+		merged := map[string]string{}
+		for _, ps := range strings.Split(*pairsF, ",") {
+			pr := strings.Split(strings.TrimSpace(ps), "-")
+			if len(pr) != 2 {
+				return fmt.Errorf("bad pair %q", ps)
+			}
+			h, _, err := app.ResolveHints(context.Background(), cf, [2]string{pr[0], pr[1]}, tc)
+			if err != nil {
+				return fmt.Errorf("whisper hints for %s: %w", ps, err)
+			}
+			for l, v := range h {
+				if merged[l] == "" {
+					merged[l] = v
+				}
+			}
+		}
+		sc.SetHints(merged)
+		fmt.Printf("context: %s (~%d tokens), whisper hints for %d languages\n", *ctxPath, cf.ApproxTokens(), len(merged))
+	}
+	ca := &cache{next: sc, m: map[string]*entry{}}
 	resolve := func(p prepared, pair [2]string) (stt.Resolved, error) {
 		r := stt.Resolver{T: clipT{ca, p.id, p.wav16k}, ID: langid.New(pair), Pair: pair, LogprobFloor: *floor, MaxCompression: *maxc}
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -272,6 +316,32 @@ func run() error {
 		for _, m := range misses {
 			fmt.Println(m)
 		}
+	}
+
+	// Correction and latency over the sentence clips heard in each pair.
+	if *correctF {
+		fmt.Println("\ncorrection (heard text translated with and without correction)")
+		var st correctStats
+		for _, ps := range strings.Split(*pairsF, ",") {
+			pr := strings.Split(strings.TrimSpace(ps), "-")
+			pair := [2]string{pr[0], pr[1]}
+			fmt.Printf("pair %s\n", ps)
+			for _, c := range sentences {
+				if c.wav16k == nil || (c.lang != pair[0] && c.lang != pair[1]) {
+					continue
+				}
+				got, err := resolve(c, pair)
+				if err != nil {
+					continue // already reported as a miss above
+				}
+				to := pair[0]
+				if got.Lang == pair[0] {
+					to = pair[1]
+				}
+				fmt.Println(st.line(context.Background(), tc, c.id, got.Text, c.ref, got.Lang, to))
+			}
+		}
+		fmt.Println(st.summary())
 	}
 
 	// Short real words: must be kept, in their own language.

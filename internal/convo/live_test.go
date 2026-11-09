@@ -404,3 +404,26 @@ func TestLiveLangChangeRetranslates(t *testing.T) {
 		t.Error("Stale must clear once retranslated")
 	}
 }
+
+func TestLiveCorrectedClearedWhenStale(t *testing.T) {
+	h := newHarness(t, 0)
+	h.log.SetCorrect(true)
+	id := h.log.StartLive()
+	h.log.UpdateLive(id, "en", "scale way")
+	c := recv(t, h.tr.calls)
+	if !c.correct {
+		t.Error("live request must ask for correction")
+	}
+	c.reply <- trReply{text: "T(a)", corrected: "Scaleway"}
+	rows := h.waitFor("live corrected", func(r []Row) bool { return len(r) == 1 && r[0].Corrected == "Scaleway" })
+	if rows[0].Original != "scale way" || rows[0].Stale {
+		t.Errorf("row = %+v", rows[0])
+	}
+	h.log.UpdateLive(id, "en", "scale way rocks")
+	row, _ := liveRow(h.log.Rows())
+	if row.Corrected != "" || !row.Stale || row.Original != "scale way rocks" {
+		t.Errorf("row = %+v want Corrected cleared and Stale", row)
+	}
+	recv(t, h.tr.calls).reply <- trReply{text: "T(b)"}
+	h.waitFor("fresh", func(r []Row) bool { return len(r) == 1 && r[0].Translation == "T(b)" })
+}

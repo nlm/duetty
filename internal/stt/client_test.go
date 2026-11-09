@@ -189,3 +189,32 @@ func TestNoKeyNoAuthHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func hintClient(t *testing.T, wantPrompt string, wantPresent bool) *Client {
+	c := serve(t, twoSeg, func(r *http.Request) {
+		p, ok := r.MultipartForm.Value["prompt"]
+		if ok != wantPresent || (ok && p[0] != wantPrompt) {
+			t.Errorf("prompt = %v (present %v), want %q (present %v)", p, ok, wantPrompt, wantPresent)
+		}
+	})
+	c.SetHints(map[string]string{"fr": "Scaleway"})
+	return c
+}
+
+func TestHintSentForLanguage(t *testing.T) {
+	if _, err := hintClient(t, "Scaleway", true).Transcribe(context.Background(), []byte("x"), "fr"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoHintOnAutoPass(t *testing.T) {
+	if _, err := hintClient(t, "", false).Transcribe(context.Background(), []byte("x"), ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoHintOtherLanguage(t *testing.T) {
+	if _, err := hintClient(t, "", false).Transcribe(context.Background(), []byte("x"), "en"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -41,7 +41,7 @@ func TestLayoutAlignsRows(t *testing.T) {
 		row(1, convo.Done, "fr", long, "hello"),
 		row(2, convo.Done, "en", "ok", "d'accord"),
 	}
-	l, r := Layout(rows, pair, 41, false)
+	l, r := Layout(rows, pair, 41, false, false)
 	if len(l) != len(r) {
 		t.Fatalf("len %d vs %d", len(l), len(r))
 	}
@@ -66,7 +66,7 @@ func TestLayoutAlignsRows(t *testing.T) {
 }
 
 func TestLayoutMarksSource(t *testing.T) {
-	l, r := Layout([]convo.Row{row(1, convo.Done, "en", "hi", "salut")}, pair, 41, false)
+	l, r := Layout([]convo.Row{row(1, convo.Done, "en", "hi", "salut")}, pair, 41, false, false)
 	if !strings.HasPrefix(plain(r[0]), " »") || strings.Contains(plain(l[0]), "»") {
 		t.Fatalf("l=%q r=%q", l[0], r[0])
 	}
@@ -79,7 +79,7 @@ func TestLayoutMarksSource(t *testing.T) {
 	if !strings.Contains(l[0], "[-::-]salut") {
 		t.Fatalf("translation should be plain default color: %q", l[0])
 	}
-	l, r = Layout([]convo.Row{row(1, convo.Done, "fr", "salut", "hi")}, pair, 41, false)
+	l, r = Layout([]convo.Row{row(1, convo.Done, "fr", "salut", "hi")}, pair, 41, false, false)
 	if !strings.HasPrefix(plain(l[0]), " »") || strings.Contains(plain(r[0]), "»") {
 		t.Fatalf("fr: l=%q r=%q", l[0], r[0])
 	}
@@ -87,7 +87,7 @@ func TestLayoutMarksSource(t *testing.T) {
 
 func TestLayoutCJKWidth(t *testing.T) {
 	jp := strings.Repeat("あ", 30)
-	l, r := Layout([]convo.Row{row(1, convo.Done, "ja", jp, "short")}, [2]string{"ja", "en"}, 41, false)
+	l, r := Layout([]convo.Row{row(1, convo.Done, "ja", jp, "short")}, [2]string{"ja", "en"}, 41, false, false)
 	if len(l) != len(r) || len(l) < 3 {
 		t.Fatalf("len %d %d", len(l), len(r))
 	}
@@ -108,7 +108,7 @@ func TestLayoutNarrow(t *testing.T) {
 	text := "日本語のテストです hello wonderful 世界"
 	for w := 0; w <= 60; w++ {
 		for _, ts := range []bool{false, true} {
-			l, r := Layout([]convo.Row{row(1, convo.Done, "fr", text, "x")}, pair, w, ts)
+			l, r := Layout([]convo.Row{row(1, convo.Done, "fr", text, "x")}, pair, w, ts, false)
 			if len(l) != len(r) {
 				t.Fatalf("w=%d misaligned", w)
 			}
@@ -129,18 +129,18 @@ func TestLayoutNarrow(t *testing.T) {
 }
 
 func TestLayoutPendingTranslation(t *testing.T) {
-	l, r := Layout([]convo.Row{row(1, convo.Original, "fr", "salut", "")}, pair, 41, false)
+	l, r := Layout([]convo.Row{row(1, convo.Original, "fr", "salut", "")}, pair, 41, false, false)
 	if !strings.Contains(plain(r[0]), "…") || !strings.Contains(r[0], "[gray::i]") {
 		t.Fatalf("%q %q", l, r)
 	}
 }
 
 func TestLayoutCancelledAndFailed(t *testing.T) {
-	_, r := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false)
+	_, r := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false, false)
 	if !strings.Contains(plain(r[0]), "cancelled") {
 		t.Fatalf("%q", r)
 	}
-	if l, _ := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false); !strings.Contains(l[0], "[gray::s]salut") {
+	if l, _ := Layout([]convo.Row{row(1, convo.Cancelled, "fr", "salut", "")}, pair, 41, false, false); !strings.Contains(l[0], "[gray::s]salut") {
 		t.Fatalf("cancelled original not struck through: %q", l)
 	}
 	if false {
@@ -148,7 +148,7 @@ func TestLayoutCancelledAndFailed(t *testing.T) {
 	}
 	f := row(1, convo.Failed, "fr", "salut", "")
 	f.Err = "translation failed"
-	_, r = Layout([]convo.Row{f}, pair, 41, false)
+	_, r = Layout([]convo.Row{f}, pair, 41, false, false)
 	if !strings.Contains(strings.Join(mapPlain(r), " "), "translation failed") || !strings.Contains(r[0], "[red]") {
 		t.Fatalf("%q", r)
 	}
@@ -156,18 +156,18 @@ func TestLayoutCancelledAndFailed(t *testing.T) {
 
 func TestLayoutTimestamps(t *testing.T) {
 	rows := []convo.Row{row(1, convo.Done, "fr", "salut", "hi")}
-	l, r := Layout(rows, pair, 41, false)
+	l, r := Layout(rows, pair, 41, false, false)
 	if strings.Contains(plain(l[0]), "14:02") || strings.Contains(plain(r[0]), "14:02") {
 		t.Fatal("timestamp shown when off")
 	}
-	l, r = Layout(rows, pair, 41, true)
+	l, r = Layout(rows, pair, 41, true, false)
 	if !strings.HasPrefix(plain(l[0]), " 14:02 ") || !strings.HasPrefix(plain(r[0]), " 14:02 ") {
 		t.Fatalf("%q %q", l[0], r[0])
 	}
 }
 
 func TestLayoutEscapesTags(t *testing.T) {
-	l, _ := Layout([]convo.Row{row(1, convo.Done, "fr", "[red]hi", "x")}, pair, 41, false)
+	l, _ := Layout([]convo.Row{row(1, convo.Done, "fr", "[red]hi", "x")}, pair, 41, false, false)
 	if !strings.Contains(plain(l[0]), "[red]hi") {
 		t.Fatalf("%q", l[0])
 	}
@@ -192,7 +192,7 @@ func TestLayoutMergesSameLanguage(t *testing.T) {
 		row(4, convo.Done, "en", "Fine.", "Bien."),
 		row(5, convo.Done, "fr", "Super.", "Great."),
 	}
-	l, r := Layout(rows, pair, 81, false)
+	l, r := Layout(rows, pair, 81, false, false)
 	if len(l) != len(r) {
 		t.Fatalf("len %d vs %d", len(l), len(r))
 	}
@@ -214,7 +214,7 @@ func TestLayoutMergesCJKWithoutSpace(t *testing.T) {
 		row(1, convo.Done, "ja", "こんにちは。", "Hello."),
 		row(2, convo.Done, "ja", "元気？", "How are you?"),
 	}
-	l, _ := Layout(rows, [2]string{"ja", "en"}, 81, false)
+	l, _ := Layout(rows, [2]string{"ja", "en"}, 81, false, false)
 	if got := strings.TrimSpace(plain(l[0])); got != "» こんにちは。元気？" {
 		t.Fatalf("%q", got)
 	}
@@ -225,7 +225,7 @@ func TestLayoutStyleSplitAcrossWrap(t *testing.T) {
 		row(1, convo.Done, "fr", "a", "one two three"),
 		row(2, convo.Cancelled, "fr", "b", ""),
 	}
-	_, r := Layout(rows, pair, 31, false) // 15-cell columns, 11 for text
+	_, r := Layout(rows, pair, 31, false, false) // 15-cell columns, 11 for text
 	joined := strings.Join(r, "\n")
 	if !strings.Contains(joined, "[-::-]three") || !strings.Contains(joined, "[gray::d](cancelled)") {
 		t.Fatalf("%q", r)
@@ -235,7 +235,7 @@ func TestLayoutStyleSplitAcrossWrap(t *testing.T) {
 func TestLayoutLiveRow(t *testing.T) {
 	live := row(2, convo.Live, "fr", "Je voudrais", "I would like")
 	live.Stale = true
-	l, r := Layout([]convo.Row{row(1, convo.Done, "fr", "Bonjour.", "Hello."), live}, pair, 100, false)
+	l, r := Layout([]convo.Row{row(1, convo.Done, "fr", "Bonjour.", "Hello."), live}, pair, 100, false, false)
 	if got := strings.TrimSpace(plain(l[0])); got != "» Bonjour. Je voudrais" {
 		t.Fatalf("left = %q", got)
 	}
@@ -248,7 +248,7 @@ func TestLayoutLiveRow(t *testing.T) {
 }
 
 func TestLayoutLiveNoTranslationYet(t *testing.T) {
-	l, _ := Layout([]convo.Row{row(1, convo.Live, "en", "Hello th", "")}, pair, 100, false)
+	l, _ := Layout([]convo.Row{row(1, convo.Live, "en", "Hello th", "")}, pair, 100, false, false)
 	if !strings.Contains(l[0], "[gray::i]…") {
 		t.Fatalf("left = %q", l[0])
 	}

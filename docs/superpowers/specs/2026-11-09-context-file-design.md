@@ -124,7 +124,7 @@ browse, using a prompt duetty ships.
 - Generated hints are kept in memory only. A way to see them is useful for
   tuning (e.g. `-print-whisper-hint` that prints and exits, so the user can
   paste it into the file) — builder's call on the exact form.
-- Switch: `-whisper-hint` / `whisper_hint = true` (default true; no effect
+- Switch: `-whisper-hint` / `whisper_hint = true` (default false: off after measurement, see eval/README.md; no effect
   without a context file).
 
 ### 3. Correction of the speaker's text
@@ -199,7 +199,7 @@ browse, using a prompt duetty ships.
 | flag | config key | default |
 |---|---|---|
 | `-context PATH` | `context_file` | none |
-| `-whisper-hint` | `whisper_hint` | true |
+| `-whisper-hint` | `whisper_hint` | false (off after measurement, see eval/README.md) |
 | `-correct` | `correct` | true |
 | `-mark-corrections` | `mark_corrections` | true |
 

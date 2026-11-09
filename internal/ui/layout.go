@@ -35,7 +35,12 @@ func ColumnWidth(width int) int {
 }
 
 // seg is a styled run of text inside a paragraph.
-type seg struct{ style, text string }
+// join means no space before the segment (the text was glued to the previous
+// one, as in "Scalewayは").
+type seg struct {
+	style, text string
+	join        bool
+}
 
 // group is a run of consecutive rows spoken in the same language: shown as
 // one paragraph per side instead of one paragraph per sentence.
@@ -46,8 +51,9 @@ type group struct {
 	failed   string // transcription failure (a group of its own)
 }
 
-// groups merges consecutive same-language rows.
-func groups(rows []convo.Row) []group {
+// groups merges consecutive same-language rows. With mark, the words a
+// correction changed are shown in blue.
+func groups(rows []convo.Row, mark bool) []group {
 	var gs []group
 	for _, r := range rows {
 		if r.Status == convo.Failed && strings.TrimSpace(r.Original) == "" {
@@ -62,28 +68,40 @@ func groups(rows []convo.Row) []group {
 		if r.Status == convo.Cancelled {
 			os = cancStyle
 		}
+		shown := r.Original
+		if r.Corrected != "" && r.Status != convo.Cancelled && r.Status != convo.Failed {
+			shown = r.Corrected
+		}
 		if r.Status == convo.Live {
-			g.src = append(g.src, seg{liveStyle, r.Original})
+			if mark && r.Corrected != "" {
+				g.src = append(g.src, correctionSegs(r.Original, r.Corrected, liveStyle, liveCorrStyle)...)
+			} else {
+				g.src = append(g.src, seg{liveStyle, shown, false})
+			}
 			if r.Translation == "" {
-				g.oth = append(g.oth, seg{liveStyle, "…"})
+				g.oth = append(g.oth, seg{liveStyle, "…", false})
 				continue
 			}
-			g.oth = append(g.oth, seg{liveStyle, r.Translation})
+			g.oth = append(g.oth, seg{liveStyle, r.Translation, false})
 			if r.Stale {
-				g.oth = append(g.oth, seg{liveStyle, "…"})
+				g.oth = append(g.oth, seg{liveStyle, "…", false})
 			}
 			continue
 		}
-		g.src = append(g.src, seg{os, r.Original})
+		if mark && shown != r.Original {
+			g.src = append(g.src, correctionSegs(r.Original, shown, os, corrStyle)...)
+		} else {
+			g.src = append(g.src, seg{os, shown, false})
+		}
 		switch r.Status {
 		case convo.Original:
-			g.oth = append(g.oth, seg{pendStyle, "…"})
+			g.oth = append(g.oth, seg{pendStyle, "…", false})
 		case convo.Cancelled:
-			g.oth = append(g.oth, seg{dimStyle, "(cancelled)"})
+			g.oth = append(g.oth, seg{dimStyle, "(cancelled)", false})
 		case convo.Failed:
-			g.oth = append(g.oth, seg{errStyle, "(" + r.Err + ")"})
+			g.oth = append(g.oth, seg{errStyle, "(" + r.Err + ")", false})
 		default:
-			g.oth = append(g.oth, seg{transStyle, r.Translation})
+			g.oth = append(g.oth, seg{transStyle, r.Translation, false})
 		}
 	}
 	return gs
@@ -95,13 +113,13 @@ func groups(rows []convo.Row) []group {
 // gutter on each side. Consecutive rows in the same language form one
 // paragraph; each paragraph occupies the same line range in both columns,
 // and paragraphs are separated by one blank line.
-func Layout(rows []convo.Row, pair [2]string, width int, timestamps bool) (left, right []string) {
+func Layout(rows []convo.Row, pair [2]string, width int, timestamps, markCorrections bool) (left, right []string) {
 	cw, gut := ColumnWidth(width), gutter
 	if cw < 8 {
 		gut = "" // too narrow to spare the gutter
 	}
 	cw -= 2 * len(gut)
-	for i, g := range groups(rows) {
+	for i, g := range groups(rows, markCorrections) {
 		if i > 0 {
 			left = append(left, "")
 			right = append(right, "")
@@ -150,7 +168,7 @@ func renderGroup(g group, cw int, ts bool) (src, oth []string) {
 		return lines
 	}
 	if g.failed != "" {
-		return block("  ", []seg{{errStyle, g.failed}}), nil
+		return block("  ", []seg{{errStyle, g.failed, false}}), nil
 	}
 	return block(origStyle+"»"+reset+" ", g.src), block("  ", g.oth)
 }
@@ -173,7 +191,7 @@ func wrapSegs(segs []seg, width int) []string {
 		if t == "" {
 			continue
 		}
-		if plainText.Len() > 0 && !joinable(plainText.String(), t) {
+		if plainText.Len() > 0 && !s.join && !joinable(plainText.String(), t) {
 			plainText.WriteByte(' ')
 		}
 		plainText.WriteString(t)

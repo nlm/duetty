@@ -449,3 +449,50 @@ func TestAPIKeyScopedToAPIURLServer(t *testing.T) {
 		t.Fatalf("own translate key: %q %q", c.TranslateKey(), c.STTKey())
 	}
 }
+
+func TestContextDefaults(t *testing.T) {
+	d := Defaults()
+	if d.WhisperHint || !d.Correct || !d.MarkCorrections {
+		t.Fatalf("WhisperHint=%v Correct=%v MarkCorrections=%v, want false/true/true (hint failed the eval)", d.WhisperHint, d.Correct, d.MarkCorrections)
+	}
+	if d.ContextFile != "" || d.PrintWhisperHint {
+		t.Fatalf("ContextFile=%q PrintWhisperHint=%v, want zero values", d.ContextFile, d.PrintWhisperHint)
+	}
+}
+
+func TestContextFlags(t *testing.T) {
+	c, err := Load(withURL("-context", "x.md", "-correct=false", "-whisper-hint=false",
+		"-mark-corrections=false", "-print-whisper-hint"), noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ContextFile != "x.md" || c.Correct || c.WhisperHint || c.MarkCorrections || !c.PrintWhisperHint {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestContextFileKeys(t *testing.T) {
+	d := inTempDir(t)
+	p := filepath.Join(d, "c.toml")
+	os.WriteFile(p, []byte("context_file = \"c.md\"\ncorrect = false\n"), 0o600)
+	c, err := Load(withURL("-config", p), noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ContextFile != "c.md" || c.Correct {
+		t.Fatalf("ContextFile=%q Correct=%v", c.ContextFile, c.Correct)
+	}
+	c, err = Load(withURL("-config", p, "-context", "f.md", "-correct=true"), noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ContextFile != "f.md" || !c.Correct {
+		t.Fatalf("flag must win: ContextFile=%q Correct=%v", c.ContextFile, c.Correct)
+	}
+	if err := os.WriteFile(p, []byte("print_whisper_hint = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(withURL("-config", p), noEnv); err == nil {
+		t.Fatal("print_whisper_hint must not be a config key")
+	}
+}

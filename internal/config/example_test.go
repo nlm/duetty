@@ -30,6 +30,9 @@ func TestExampleConfigListsEveryKey(t *testing.T) {
 	ty := reflect.TypeOf(Config{})
 	for i := 0; i < ty.NumField(); i++ {
 		k := ty.Field(i).Tag.Get("toml")
+		if k == "-" { // flag-only, not a file key
+			continue
+		}
 		if seen[k] != 1 {
 			t.Errorf("config.example.toml: key %s appears %d times, want 1", k, seen[k])
 		}

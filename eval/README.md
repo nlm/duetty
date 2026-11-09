@@ -104,3 +104,88 @@ denoised, and `real-sneezing` (a vocal sound, not stationary noise) passes
 Silero after its background is removed. These clips are clean studio-ish
 recordings, so denoise can only lose here; it is meant for noisy rooms
 (cafés, trains) and stays off by default.
+
+## Context, correction and hints
+
+Measured 2026-11-09 against Scaleway (whisper-large-v3, mistral-small-3.2-24b-instruct-2506),
+same clips, words and noise as above, runs back to back. The fresh baseline (no
+`-context`) matched the tables above exactly (20/20 per pair, words 26/26, 29/29,
+26/26, 27/27, 24/24, 27/27, noise 25/25 dropped before Whisper). Offline
+(speaches + Ollama) was not measured: not available on the measuring machine.
+
+`-correct` (102 sentence clips, all pairs; heard text translated with and
+without correction). "Before the change check" is the first measurement; "with
+the change check" re-ran it after duetty started checking each change of a
+correction (sound-alike replacements and small missing words only; a dropped
+change keeps the heard words and the sentence is retranslated):
+
+| measure | no context, before the change check | no context, with the change check | example.md, before the change check | example.md, with the change check |
+|---------|------|------|------|------|
+| rephrased (clips heard correctly, REPHRASE) | 0/102 | 0/102 | 11/102 | 1/102 |
+| discarded corrections (DISCARDED) | 0/102 | 0/102 | 0/102 | 17/102 |
+| errors | 0 | 0 | 0 | 0 |
+| median latency plain / correct | 175 ms / 466 ms (+291 ms) | 111 ms / 294 ms (+183 ms) | 132 ms / 304 ms (+172 ms) | 115 ms / 329 ms (+214 ms) |
+
+The context runs use `-context internal/ctxfile/testdata/example.md`.
+
+Before the change check, the context file made the model swap a heard name for
+a name from the file: "Tom" became "Dan" or "Théo" in 6 distinct clips
+(en-1082811, en-120146, en-213632, en-547924, fr-1093576, fr-77020; a clip can
+count in several pairs), and fr-1098032 "J'ai ouvert le capot." became
+"J'ai ouvert le bucket." The whole-sentence similarity check did not discard
+them (short sentences, one word changed).
+
+With the change check (measured 2026-11-09), all of those swaps are dropped,
+and the heard text is kept and retranslated. This run includes both review
+fixes: names and context terms are checked inside a replaced span, and a
+replaced span with the same number of words is judged word by word. The eval
+reports a clip whose every change was dropped as DISCARDED, because the
+correction comes back empty when it equals the heard text. So the 17 DISCARDED
+are the intended outcome: 8 distinct clips (the 7 above plus en-1148324 "Tell
+Tom he was wrong."), all shown as heard. The real fix `heard="J'avais de me
+reposer." corrected="J'avais besoin de me reposer."` is still kept in both
+runs. `sameWords` in the eval now ignores punctuation, so an added comma in
+Japanese (no spaces) no longer counts as a changed word. An earlier run counted
+ja-1053503 as a REPHRASE for that reason alone.
+
+Not a full pass: one REPHRASE remains with example.md:
+`es-609293.wav: heard="Piense en su familia." corrected="Pense en su familia."  REPHRASE`.
+"Piense" -> "Pense" is a one-letter change (similarity 0.83), so it passes as a
+sound-alike fix. `minSpanSimilarity` (0.5) was not tuned: dropping this would
+need a threshold above 0.83, which would also drop one-letter mishearing fixes.
+In an earlier run the model returned "Pense à sa famille." for this clip. The
+word-by-word check now drops that ("en" -> "à").
+
+Latency stays under the 300 ms threshold. A dropped change costs one more
+translation-only request for that sentence.
+
+Whisper hints (`-context internal/ctxfile/testdata/example.md`, hand-written hint
+section; and a copy without the hint section, so hints were generated):
+
+| stage | no context | example.md hint | generated hint |
+|-------|-----------|-----------------|----------------|
+| language pick (6 pairs) | 20/20 each | 20/20 each | 20/20 each |
+| short words kept (fr-en, es-en, ja-en, es-fr, ja-fr, es-ja) | 26/26, 29/29, 26/26, 27/27, 24/24, 27/27 | 25/26, 29/29, 26/26, 26/27, 23/24, 27/27 | 25/26, 29/29, 26/26, 26/27, 24/24, 27/27 |
+| noise dropped before Whisper | 25/25 each | 25/25 each | 25/25 each |
+| noise reaching Whisper -> ErrNoise / row | 0 / 0 | 0 / 0 | 0 / 0 |
+
+The only regression is the one badly recorded word clip (fr-473963 "Tom peint.",
+see the noise calibration above), dropped as noise in 3 of 6 pairs with the
+hint and in 2 of 6 pairs with the generated one; without a hint it was kept in
+all 6 pairs and in two further back-to-back re-runs (fr-en, es-fr, ja-fr).
+Re-running the example.md hint on the three fr pairs gave fr-en 25/26 (fr-473963
+dropped), es-fr 27/27 and ja-fr 24/24. So the drop of fr-473963 was not
+reproducible every time, and the verdict stands under the rule.
+`-detail` (fr-en) shows the hint lowers the forced-language passes
+(en: -0.97 -> -1.43, "Dun-dun." -> "Thumb up!"; fr: -1.19 -> -1.57, "ton pain." ->
+"Tum pan!"), under the -1.0 floor. The output is not a copy of the hint, so the
+echo filter from the plan (drop >= 5-word substrings of the hint) would not
+apply and was not added. Noise did not regress.
+
+Verdict: the words check fails ("equal to the table"), so `whisper_hint` ships
+off by default (`-whisper-hint` / `whisper_hint = true` to enable). The context
+file still feeds the translator and correction.
+
+Prompt caching: `cached_tokens` was 0 on every translation response (about 470-500
+prompt tokens each, 20 calls on fr-en with the context file). No caching observed
+on Scaleway for this size of prompt; information only.

@@ -50,6 +50,7 @@ type Client struct {
 	model   string
 	http    *http.Client
 	meter   *usage.Meter
+	hints   map[string]string
 }
 
 // NewClient builds a Client.
@@ -60,6 +61,10 @@ func NewClient(baseURL, apiKey, model string) *Client {
 // SetMeter makes the client report billed audio seconds to m. Call it before
 // the client is used concurrently.
 func (c *Client) SetMeter(m *usage.Meter) { c.meter = m }
+
+// SetHints sets the per-language Whisper prompt, keyed by language code. Call
+// it before the client is used concurrently; nil means no hints.
+func (c *Client) SetHints(h map[string]string) { c.hints = h }
 
 type response struct {
 	Language string `json:"language"`
@@ -86,6 +91,9 @@ func (c *Client) Transcribe(ctx context.Context, wav16k []byte, language string)
 	fields := [][2]string{{"model", c.model}, {"response_format", "verbose_json"}, {"temperature", "0"}}
 	if language != "" {
 		fields = append(fields, [2]string{"language", language})
+		if h := c.hints[language]; h != "" {
+			fields = append(fields, [2]string{"prompt", h})
+		}
 	}
 	for _, f := range fields {
 		if err := mw.WriteField(f[0], f[1]); err != nil {
