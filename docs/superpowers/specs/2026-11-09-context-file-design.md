@@ -180,6 +180,9 @@ browse, using a prompt duetty ships.
   sources it relied on removed from the final file (keep the file lean).
 - `docs/context.md` documents the format and how to use the prompt; README
   gets a short section and a link.
+- Ship `docs/context.example.md`, a complete example file (the one in the
+  appendix below), referenced from `docs/context.md` and the README. The
+  research prompt points to it as the target shape.
 
 ## Live preview
 
@@ -236,3 +239,63 @@ measured and why the default is what it is.
 Output format for the two-part reply; exact prompt wording; size warning
 threshold; hint-generation prompt; how to expose the generated hint; field
 split between heard and shown text; test design.
+
+## Appendix: example context file
+
+This is the reference example, shipped as `docs/context.example.md`. It uses
+a fictional team, with a French/English pair. People are made up.
+
+````markdown
+# Setting
+
+Weekly sync between the Scaleway Object Storage team in Paris and an
+English-speaking customer team at Northwind Logistics, who are moving their
+archive from AWS S3 to Scaleway. The talk is technical: storage classes,
+migration tooling, lifecycle rules, billing. Speakers switch between French
+and English.
+
+## People
+
+- Camille Moreau — Scaleway, Object Storage product manager. Name stays as is.
+- Théo Lefebvre — Scaleway, solutions architect. Keep the accent on « Théo ».
+- Priya Raman — Northwind, head of infrastructure.
+- Dan Okafor — Northwind, SRE in charge of the migration.
+
+## Brands and products
+
+- Scaleway — French cloud provider. Never translated; one word, not
+  « scale way ».
+- Object Storage — Scaleway's S3-compatible storage. Keep « Object Storage »
+  in English in French sentences.
+- Glacier — Scaleway's cold storage class (also an AWS name). Keep as is.
+- AWS S3, Amazon S3 — keep as is; « S3 » is said « ess-three » in English
+  and « esse-trois » in French.
+- Northwind Logistics, Northwind — the customer. Never translated.
+- rclone — open-source sync tool. Lower case, never translated.
+
+## Terms
+
+- bucket — fr: « bucket » (not « seau »).
+- lifecycle rule — fr: « règle de cycle de vie ».
+- storage class — fr: « classe de stockage ».
+- egress — fr: « trafic sortant »; often said « egress » in French too, keep
+  it if the speaker did.
+- multipart upload — keep in English in both languages.
+- PoC — proof of concept; fr speakers say « POC ». Keep as is.
+
+## Whisper hint
+
+### fr
+
+Réunion entre Scaleway et Northwind Logistics avec Camille Moreau, Théo
+Lefebvre, Priya Raman et Dan Okafor : migration des buckets AWS S3 vers
+Object Storage, classe Glacier, règles de cycle de vie, rclone et multipart
+upload.
+
+### en
+
+Meeting between Scaleway and Northwind Logistics with Camille Moreau, Théo
+Lefebvre, Priya Raman and Dan Okafor: migrating AWS S3 buckets to Scaleway
+Object Storage, the Glacier storage class, lifecycle rules, rclone and
+multipart upload.
+````
