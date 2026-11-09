@@ -138,8 +138,14 @@ browse, using a prompt duetty ships.
 - Scope: fix mishearings of context terms **and** obvious mishearings of
   ordinary words. Never rephrase. The instruction must say so firmly.
 - Works with or without a context file.
-- The speaker's pane shows the corrected text **with no marker** (my call;
-  easy to change).
+- The speaker's pane shows the corrected text with **the changed words in
+  blue** (decided). duetty finds them by a word-level diff between heard and
+  corrected text; only words that differ are coloured. Blue must stay
+  readable next to the existing live-preview styling (e.g. dimmed stale
+  text); exact shade and diff method are the builder's call. Terminals
+  without colour show plain text.
+- Switch: `-mark-corrections` / `mark_corrections = true` (default true).
+  Off → corrected text with no marking.
 - The corrected text is what goes into later requests' history.
 - **Typed input is not corrected** (my call: nothing was misheard; typed text
   still gets the context for translation).
@@ -192,6 +198,7 @@ browse, using a prompt duetty ships.
 | `-context PATH` | `context_file` | none |
 | `-whisper-hint` | `whisper_hint` | true |
 | `-correct` | `correct` | true |
+| `-mark-corrections` | `mark_corrections` | true |
 
 Add them to `config.example.toml` in the existing style.
 
